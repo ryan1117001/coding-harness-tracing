@@ -80,12 +80,11 @@ class TestResolveSession:
         sm = adapter.resolve_session({"cwd": "/tmp/project"})
         assert sm.state_file == copilot_state_dir / "state_12345.json"
 
-    def test_camel_case_session_id_not_used(self, copilot_state_dir, disable_env_vars, monkeypatch):
-        """Old camelCase sessionId is NOT recognized — triggers PID fallback."""
+    def test_camel_case_session_id_used(self, copilot_state_dir, disable_env_vars, monkeypatch):
+        """Copilot CLI sends camelCase sessionId — it is used as the session key."""
         monkeypatch.setattr(adapter, "_get_grandparent_pid", lambda: "77777")
         sm = adapter.resolve_session({"sessionId": "camel-case-id", "hookEventName": "SessionStart"})
-        # Should NOT use "camel-case-id"; should fall back to PID
-        assert sm.state_file == copilot_state_dir / "state_77777.json"
+        assert sm.state_file == copilot_state_dir / "state_camel-case-id.json"
 
 
 # ── ensure_session_initialized tests ─────────────────────────────────────────
@@ -145,14 +144,11 @@ class TestEnsureSessionInitialized:
         assert len(sid) == 32
         int(sid, 16)  # should not raise
 
-    def test_camel_case_session_id_not_used(self, copilot_state_dir, disable_env_vars):
-        """Old camelCase sessionId is NOT recognized — generates new ID."""
-        sm = self._make_state(copilot_state_dir, "camel-ignore")
+    def test_camel_case_session_id_used(self, copilot_state_dir, disable_env_vars):
+        """Copilot CLI sends camelCase sessionId — it is recorded as session_id."""
+        sm = self._make_state(copilot_state_dir, "camel-use")
         adapter.ensure_session_initialized(sm, {"sessionId": "camel-case-id"})
-        sid = sm.get("session_id")
-        assert sid != "camel-case-id"
-        assert len(sid) == 32
-        int(sid, 16)
+        assert sm.get("session_id") == "camel-case-id"
 
     def test_project_name_from_env(self, copilot_state_dir, monkeypatch):
         """ARIZE_PROJECT_NAME env var takes priority over cwd."""

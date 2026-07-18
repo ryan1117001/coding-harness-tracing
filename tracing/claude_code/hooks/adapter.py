@@ -10,7 +10,15 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from core.common import StateManager, env, generate_trace_id, get_timestamp_ms, log, redirect_stderr_to_log_file
+from core.common import (
+    StateManager,
+    env,
+    generate_trace_id,
+    get_timestamp_ms,
+    git_repository_name,
+    log,
+    redirect_stderr_to_log_file,
+)
 from core.constants import HARNESSES, STATE_BASE_DIR
 
 # --- Module-level constants derived from HARNESSES ---
@@ -141,7 +149,7 @@ def ensure_session_initialized(state: StateManager, input_json: dict) -> None:
     project_name = env.project_name_for(SERVICE_NAME)
     if not project_name:
         cwd = input_json.get("cwd", "")
-        project_name = os.path.basename(cwd) if cwd else os.path.basename(os.getcwd())
+        project_name = git_repository_name(cwd) or (os.path.basename(cwd) if cwd else os.path.basename(os.getcwd()))
 
     state.set("session_id", session_id)
     state.set("session_start_time", str(get_timestamp_ms()))

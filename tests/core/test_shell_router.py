@@ -265,7 +265,7 @@ class TestDispatchLogic:
         self.text = _read_install_sh()
 
     def test_dispatches_harness_commands(self):
-        """Every supported harness must appear in the main() case dispatch line."""
+"""Every supported harness must appear in the main() case dispatch line."""
         expected = [
             "claude",
             "codex",
@@ -277,6 +277,7 @@ class TestDispatchLogic:
             "opencode",
             "omp",
             "devin",
+            "pi",
         ]
         # Find the dispatch alternation once (the case branch that calls
         # install_harness), then assert every harness name is present in it.
@@ -289,7 +290,6 @@ class TestDispatchLogic:
         dispatched = match.group(1).split("|")
         for harness in expected:
             assert harness in dispatched, f"main() case dispatch missing harness: {harness}"
-        """claude|codex|copilot|cursor|gemini|kiro|opencode|omp|devin should be dispatched."""
 
     def test_install_harness_called(self):
         """install_harness function should be called for harness commands."""

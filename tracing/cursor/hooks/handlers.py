@@ -26,6 +26,7 @@ from tracing.cursor.hooks.adapter import (
     state_push,
     trace_id_from_generation,
 )
+from tracing.cursor.hooks.transcript import model_from_conversation, model_from_transcript
 
 # ---------------------------------------------------------------------------
 # Span send (with project.name injection)
@@ -90,6 +91,51 @@ def _jq_str(input_json: dict, *keys, default: str = "") -> str:
         if val is not None and val != "":
             return str(val)
     return default
+
+
+_MODEL_SENTINELS = frozenset({"default", "auto"})
+
+
+def _model_from_input(input_json: dict) -> str:
+    """Resolve the real model name from a Cursor hook payload's fields.
+
+    Cursor sends ``model_id`` ("structured ID for the selected model, when
+    available") alongside the legacy ``model`` slug, which is the sentinel
+    ``"default"``/``"auto"`` when the composer is in Auto mode. Prefer
+    ``model_id``; fall back to ``model``/``model_name`` but drop the sentinels
+    so ``llm.model_name`` is never recorded as ``"default"``. Returns "" when no
+    concrete model can be resolved from the payload.
+    """
+    for key in ("model_id", "modelId", "model", "model_name"):
+        val = input_json.get(key)
+        if val and str(val).strip().lower() not in _MODEL_SENTINELS:
+            return str(val)
+    return ""
+
+
+def _resolve_model(input_json: dict) -> str:
+    """Resolve the model, falling back to the chat transcript when needed.
+
+    In Auto mode the hook payload only carries the ``"default"``/``"auto"``
+    sentinel, but Cursor records the resolved model (e.g. ``composer-2.5-fast``)
+    in the chat transcript at ``providerOptions.cursor.modelName``. Resolution
+    order: payload fields → ``transcript_path`` → the conversation's ``store.db``
+    located by ``conversation_id`` (works even when ``transcript_path`` is
+    absent/null, which is the common case). Best-effort: returns "" if nothing
+    yields a real model.
+    """
+    model = _model_from_input(input_json)
+    if model:
+        return model
+    transcript_path = _jq_str(input_json, "transcript_path", "transcriptPath")
+    if transcript_path:
+        model = model_from_transcript(transcript_path)
+        if model:
+            return model
+    conversation_id = _jq_str(input_json, "conversation_id", "conversationId")
+    if conversation_id:
+        return model_from_conversation(conversation_id)
+    return ""
 
 
 def _resolve_user_id(input_json: dict) -> str:
@@ -209,7 +255,7 @@ def _handle_before_submit_prompt(input_json, conversation_id, gen_id, trace_id, 
     gen_root_span_save(gen_id, sid)
 
     prompt = _jq_str(input_json, "prompt", "input", "text")
-    model = _jq_str(input_json, "model", "model_name")
+    model = _resolve_model(input_json)
     deferred_root = _is_cursor_ide_hook_payload(input_json)
 
     state_push(
@@ -267,7 +313,7 @@ def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, 
     # "text" is the documented field; fall back to "response"/"output" for compat
     response = _jq_str(input_json, "text", "response", "output")
     # "model" is a base field on all hook events
-    model = _jq_str(input_json, "model", "model_name")
+    model = _resolve_model(input_json)
 
     safe_gen = sanitize(gen_id) if gen_id else ""
     root_state = state_pop(f"root_{safe_gen}") if safe_gen else None
@@ -720,7 +766,7 @@ def _handle_stop(input_json, conversation_id, gen_id, trace_id, now_ms):
     cache_read = _to_int(_cr_tok if _cr_tok is not None else input_json.get("cacheReadTokens"))
     _cw_tok = input_json.get("cache_write_tokens")
     cache_write = _to_int(_cw_tok if _cw_tok is not None else input_json.get("cacheWriteTokens"))
-    model = _jq_str(input_json, "model")
+    model = _resolve_model(input_json)
     _dur = input_json.get("duration_ms")
     duration_ms = _to_int(_dur if _dur is not None else input_json.get("durationMs"))
 

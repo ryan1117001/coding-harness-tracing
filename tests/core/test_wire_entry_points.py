@@ -52,6 +52,7 @@ EXPECTED_HARNESS_ENTRY_POINTS = {
     "arize-hook-copilot-post-tool": "tracing.copilot.hooks.handlers:post_tool_use",
     "arize-hook-copilot-stop": "tracing.copilot.hooks.handlers:stop",
     "arize-hook-copilot-subagent-stop": "tracing.copilot.hooks.handlers:subagent_stop",
+    "arize-hook-copilot-session-end": "tracing.copilot.hooks.handlers:session_end",
     # Gemini hooks
     "arize-hook-gemini-session-start": "tracing.gemini.hooks.handlers:session_start",
     "arize-hook-gemini-session-end": "tracing.gemini.hooks.handlers:session_end",
@@ -74,6 +75,8 @@ EXPECTED_HARNESS_ENTRY_POINTS = {
     "arize-hook-omp": "tracing.omp.hooks.handlers:main",
     # Devin hook
     "arize-hook-devin": "tracing.devin.hooks.handlers:main",
+    # pi hook
+    "arize-hook-pi": "tracing.pi.hooks.handlers:main",
 }
 
 # Setup wizards stay on core.setup.*
@@ -88,6 +91,7 @@ EXPECTED_SETUP_ENTRY_POINTS = {
     "arize-setup-opencode": "core.setup.opencode:main",
     "arize-setup-omp": "core.setup.omp:main",
     "arize-setup-devin": "core.setup.devin:main",
+    "arize-setup-pi": "core.setup.pi:main",
 }
 
 
@@ -247,6 +251,7 @@ class TestHooksDirsInHarnessPackages:
             ("tracing/kiro", ["__init__.py", "adapter.py", "handlers.py"]),
             ("tracing/opencode", ["__init__.py", "adapter.py", "handlers.py"]),
             ("tracing/omp", ["__init__.py", "adapter.py", "handlers.py"]),
+            ("tracing/pi", ["__init__.py", "adapter.py", "handlers.py"]),
         ],
     )
     def test_hooks_dir_has_expected_files(self, pkg, expected_files):

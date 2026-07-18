@@ -91,6 +91,13 @@ HARNESSES: dict[str, HarnessMetadata] = {
         "state_subdir": "omp",
         "default_log_file": LOG_DIR / "omp.log",
     },
+    "pi": {
+        "service_name": "pi",
+        "scope_name": "arize-pi-plugin",
+        "default_project_name": "pi",
+        "state_subdir": "pi",
+        "default_log_file": LOG_DIR / "pi.log",
+    },
 }
 
 # model-name substring -> OpenInference llm.system well-known value

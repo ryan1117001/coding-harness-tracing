@@ -136,6 +136,8 @@ def _register_claude_hooks() -> None:
     # baked env var would otherwise shadow config and leak into the Phoenix
     # backend (which honors PHOENIX_PROJECT instead) — see issue #74.
     env_block = settings.setdefault("env", {})
+    # Clean up any ARIZE_PROJECT_NAME a previous install baked in.
+    env_block.pop("ARIZE_PROJECT_NAME", None)
     env_block.setdefault("ARIZE_TRACE_ENABLED", "true")
 
     # Register hooks

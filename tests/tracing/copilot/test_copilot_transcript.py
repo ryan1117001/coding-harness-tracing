@@ -183,30 +183,92 @@ class TestParseTranscriptReturnShape:
             "copilot_version",
             "input_text",
             "output_text",
+            "output_tokens",
             "tool_count",
+            "model_metrics",
             "events_seen",
         }
 
-    def test_output_text_always_empty_string(self, tmp_path):
+    def test_output_text_from_assistant_messages(self, tmp_path):
         f = tmp_path / "events.jsonl"
         _write_jsonl(
             f,
             [
                 {"type": "session.start", "data": {"copilotVersion": "1.0.40"}},
-                {"type": "session.model_change", "data": {"newModel": "gpt-5-mini"}},
-                {
-                    "type": "hook.start",
-                    "data": {
-                        "hookType": "userPromptSubmitted",
-                        "input": {"prompt": "hello"},
-                    },
-                },
+                {"type": "assistant.message", "data": {"model": "gpt-5.3-codex", "content": "Hello ", "outputTokens": 3}},
+                {"type": "assistant.message", "data": {"model": "gpt-5.3-codex", "content": "world", "outputTokens": 2}},
             ],
         )
         s = parse_transcript(f)
-        assert s["output_text"] == ""
+        assert s["output_text"] == "Hello world"
+        assert s["output_tokens"] == 5
 
     def test_missing_file_returns_truly_empty_dict(self, tmp_path):
         s = parse_transcript(tmp_path / "nonexistent.jsonl")
         assert s == {}
         assert len(s) == 0
+
+
+class TestParseTranscriptModelResolution:
+    def test_auto_mode_resolved_wins_over_newModel_auto(self, tmp_path):
+        """When the composer is in Auto mode, session.model_change.newModel is
+        'auto' (the mode); the resolved model comes from auto_mode_resolved."""
+        f = tmp_path / "events.jsonl"
+        _write_jsonl(
+            f,
+            [
+                {"type": "session.model_change", "data": {"newModel": "auto"}},
+                {"type": "session.auto_mode_resolved", "data": {"chosenModel": "gpt-5.3-codex"}},
+                {"type": "assistant.turn_end", "data": {"model": "gpt-5.3-codex"}},
+            ],
+        )
+        s = parse_transcript(f)
+        assert s["model_name"] == "gpt-5.3-codex"
+
+    def test_assistant_model_used_when_no_auto_resolution(self, tmp_path):
+        f = tmp_path / "events.jsonl"
+        _write_jsonl(
+            f,
+            [
+                {"type": "session.model_change", "data": {"newModel": "auto"}},
+                {"type": "assistant.message", "data": {"model": "claude-sonnet-4.6", "outputTokens": 1}},
+            ],
+        )
+        s = parse_transcript(f)
+        assert s["model_name"] == "claude-sonnet-4.6"
+
+
+class TestParseTranscriptModelMetrics:
+    def test_shutdown_model_metrics_tokens_and_cost(self, tmp_path):
+        f = tmp_path / "events.jsonl"
+        _write_jsonl(
+            f,
+            [
+                {
+                    "type": "session.shutdown",
+                    "data": {
+                        "modelMetrics": {
+                            "gpt-5.4-mini": {
+                                "usage": {
+                                    "inputTokens": 271316,
+                                    "outputTokens": 3702,
+                                    "cacheReadTokens": 207872,
+                                    "cacheWriteTokens": 0,
+                                    "reasoningTokens": 1893,
+                                },
+                                "requests": {"cost": 0.66},
+                            }
+                        }
+                    },
+                }
+            ],
+        )
+        s = parse_transcript(f)
+        m = s["model_metrics"]["gpt-5.4-mini"]
+        # prompt is the total input (cache buckets are subsets, not added again)
+        assert m["prompt"] == 271316
+        assert m["completion"] == 3702
+        assert m["cache_read"] == 207872
+        assert m["reasoning"] == 1893
+        assert m["total"] == 271316 + 3702
+        assert m["cost"] == 0.66

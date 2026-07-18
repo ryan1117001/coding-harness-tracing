@@ -66,6 +66,7 @@ def _mock_prompts(monkeypatch, backend=None):
 def cwd_tmp(tmp_path, monkeypatch):
     """Set cwd to tmp_path and patch core.setup paths for isolation."""
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("COPILOT_HOME", str(tmp_path / ".copilot"))
 
     import core.setup as setup_mod
 
@@ -91,8 +92,8 @@ def cwd_tmp(tmp_path, monkeypatch):
 
 @pytest.fixture
 def hooks_dir(cwd_tmp):
-    """Return the .github/hooks directory under the temp cwd."""
-    return cwd_tmp / ".github" / "hooks"
+    """Return the global Copilot hooks directory under the fake home."""
+    return cwd_tmp / ".copilot" / "hooks"
 
 
 # ---------------------------------------------------------------------------
@@ -142,18 +143,20 @@ class TestInstallFreshWritesFlatHarnessEntry:
         _mock_prompts(monkeypatch)
         install()
         data = json.loads((hooks_dir / "hooks.json").read_text())
+        assert data["version"] == 1
         assert set(data["hooks"].keys()) == {
-            "SessionStart",
-            "UserPromptSubmit",
-            "PreToolUse",
-            "PostToolUse",
-            "Stop",
-            "SubagentStop",
+            "sessionStart",
+            "sessionEnd",
+            "userPromptSubmitted",
+            "preToolUse",
+            "postToolUse",
+            "agentStop",
+            "subagentStop",
         }
         for event, entries in data["hooks"].items():
             assert len(entries) == 1
             assert entries[0]["type"] == "command"
-            assert "arize-hook-copilot-" in entries[0]["command"]
+            assert "arize-hook-copilot-" in entries[0]["bash"]
 
     def test_only_hooks_json_written(self, hooks_dir, monkeypatch):
         _mock_prompts(monkeypatch)
@@ -322,11 +325,11 @@ class TestUninstallPreservesUserHooks:
         install()
 
         # Add user-defined entries: a brand-new event, plus an extra command
-        # alongside ours under SessionStart.
+        # alongside ours under sessionStart.
         hf = hooks_dir / "hooks.json"
         data = json.loads(hf.read_text())
         data["hooks"]["CustomEvent"] = [{"type": "command", "command": "/usr/local/bin/my-hook"}]
-        data["hooks"]["SessionStart"].append({"type": "command", "command": "/usr/local/bin/user-session"})
+        data["hooks"]["sessionStart"].append({"type": "command", "bash": "/usr/local/bin/user-session"})
         hf.write_text(json.dumps(data, indent=2) + "\n")
 
         uninstall()
@@ -334,7 +337,7 @@ class TestUninstallPreservesUserHooks:
         assert hf.is_file()
         remaining = json.loads(hf.read_text())
         assert remaining["hooks"]["CustomEvent"] == [{"type": "command", "command": "/usr/local/bin/my-hook"}]
-        assert remaining["hooks"]["SessionStart"] == [{"type": "command", "command": "/usr/local/bin/user-session"}]
+        assert remaining["hooks"]["sessionStart"] == [{"type": "command", "bash": "/usr/local/bin/user-session"}]
 
 
 # ---------------------------------------------------------------------------

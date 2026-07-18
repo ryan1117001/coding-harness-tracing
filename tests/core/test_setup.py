@@ -1527,6 +1527,7 @@ class TestCodexRunFlow:
         env_content = env_file.read_text()
         assert "export ARIZE_TRACE_ENABLED=true" in env_content
         assert 'export PHOENIX_ENDPOINT="http://localhost:6006"' in env_content
+        assert "ARIZE_PROJECT_NAME" not in env_content
 
         # config.toml written with [otel] section
         toml_file = codex_dir / "config.toml"

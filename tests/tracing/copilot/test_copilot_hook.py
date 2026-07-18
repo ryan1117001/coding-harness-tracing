@@ -16,7 +16,9 @@ from core.common import StateManager
 from tracing.copilot.hooks.handlers import (
     _handle_post_tool_use,
     _handle_pre_tool_use,
+    _handle_session_end,
     _handle_session_start,
+    _handle_stop,
     _handle_subagent_stop,
     _handle_user_prompt_submitted,
     _print_response,
@@ -781,3 +783,87 @@ class TestProjectNameOnAllSpans:
         assert state.get("current_trace_prompt") == "new prompt"
         assert state.get("trace_count") == "1"
         assert state.get("tool_count") == "0"
+
+
+# ---------------------------------------------------------------------------
+# camelCase payload handling (Copilot CLI real schema)
+# ---------------------------------------------------------------------------
+
+
+class TestCamelCasePayloads:
+    def test_post_tool_use_reads_camelcase_fields(self, mock_resolve, state, captured_spans):
+        """Real Copilot payload: toolName / toolArgs (JSON string) / toolResult."""
+        inp = {
+            "sessionId": "test-session-copilot",
+            "cwd": "/tmp/project",
+            "toolName": "glob",
+            "toolArgs": '{"pattern": "**/*.ts"}',
+            "toolResult": {"textResultForLlm": "found 3 files", "resultType": "success"},
+        }
+        _handle_post_tool_use(inp)
+        assert len(captured_spans) == 1
+        attrs = _get_span_attrs(captured_spans[0])
+        assert attrs["tool.name"]["stringValue"] == "glob"
+        assert attrs["output.value"]["stringValue"] == "found 3 files"
+        assert attrs["tool.result_type"]["stringValue"] == "success"
+
+    def test_stop_reads_camelcase_transcript_path_and_tokens(self, mock_resolve, state, captured_spans, tmp_path):
+        """stop reads transcriptPath (camelCase) and attaches real model + output tokens."""
+        tf = tmp_path / "events.jsonl"
+        tf.write_text(
+            "\n".join(
+                [
+                    json.dumps({"type": "session.model_change", "data": {"newModel": "auto"}}),
+                    json.dumps({"type": "session.auto_mode_resolved", "data": {"chosenModel": "gpt-5.3-codex"}}),
+                    json.dumps({"type": "assistant.message", "data": {"model": "gpt-5.3-codex", "outputTokens": 42}}),
+                ]
+            )
+            + "\n"
+        )
+        state.set("current_trace_id", "t" * 32)
+        state.set("current_trace_span_id", "s" * 16)
+        _handle_stop({"sessionId": "test-session-copilot", "transcriptPath": str(tf), "stopReason": "done"})
+        attrs = _get_span_attrs(captured_spans[0])
+        assert attrs["llm.model_name"]["stringValue"] == "gpt-5.3-codex"
+        assert attrs["llm.token_count.completion"]["intValue"] == 42
+
+
+class TestSessionEnd:
+    def test_emits_per_model_usage_and_cost(self, mock_resolve, state, captured_spans, tmp_path):
+        tf = tmp_path / "events.jsonl"
+        tf.write_text(
+            json.dumps(
+                {
+                    "type": "session.shutdown",
+                    "data": {
+                        "modelMetrics": {
+                            "gpt-5.4-mini": {
+                                "usage": {
+                                    "inputTokens": 271316,
+                                    "outputTokens": 3702,
+                                    "cacheReadTokens": 207872,
+                                    "reasoningTokens": 1893,
+                                },
+                                "requests": {"cost": 0.66},
+                            }
+                        }
+                    },
+                }
+            )
+            + "\n"
+        )
+        _handle_session_end({"sessionId": "test-session-copilot", "transcriptPath": str(tf)})
+        assert len(captured_spans) == 1
+        attrs = _get_span_attrs(captured_spans[0])
+        assert attrs["llm.model_name"]["stringValue"] == "gpt-5.4-mini"
+        assert attrs["llm.token_count.prompt"]["intValue"] == 271316
+        assert attrs["llm.token_count.completion"]["intValue"] == 3702
+        assert attrs["llm.token_count.prompt_details.cache_read"]["intValue"] == 207872
+        assert attrs["llm.token_count.completion_details.reasoning"]["intValue"] == 1893
+        assert attrs["llm.cost"]["doubleValue"] == 0.66
+
+    def test_no_metrics_emits_no_span(self, mock_resolve, state, captured_spans, tmp_path):
+        tf = tmp_path / "events.jsonl"
+        tf.write_text(json.dumps({"type": "session.start", "data": {}}) + "\n")
+        _handle_session_end({"sessionId": "test-session-copilot", "transcriptPath": str(tf)})
+        assert captured_spans == []

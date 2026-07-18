@@ -13,6 +13,7 @@ Usage (called by the shell router):
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -32,7 +33,7 @@ from core.setup import (
     write_config,
     write_logging_config,
 )
-from tracing.copilot.constants import HARNESS_NAME, HOOK_EVENTS, HOOKS_DIR, HOOKS_FILE
+from tracing.copilot.constants import HARNESS_NAME, HOOK_EVENTS, HOOKS_FILE_NAME
 
 # ---------------------------------------------------------------------------
 # JSON helpers
@@ -64,33 +65,40 @@ def _write_json(path: Path, data: dict) -> None:
 # Docs: https://code.visualstudio.com/docs/copilot/customization/hooks
 
 
+def _hooks_dir() -> Path:
+    """Return Copilot's user-level hooks directory."""
+    copilot_home = os.environ.get("COPILOT_HOME")
+    return Path(copilot_home).expanduser() / "hooks" if copilot_home else Path.home() / ".copilot" / "hooks"
+
+
 def _install_hooks(hooks_dir: Path) -> None:
     """Merge our hook entries into hooks_dir/hooks.json."""
-    filepath = hooks_dir / HOOKS_FILE.name
+    filepath = hooks_dir / HOOKS_FILE_NAME
 
     if dry_run():
         info(f"would write hooks to {filepath}")
         return
 
     data = _read_json(filepath)
+    data.setdefault("version", 1)
     hooks_map: dict = data.setdefault("hooks", {})
 
     for event, entry_point in HOOK_EVENTS.items():
         cmd = str(venv_bin(entry_point))
         event_list: list = hooks_map.setdefault(event, [])
 
-        already = any(h.get("command") == cmd and h.get("type") == "command" for h in event_list)
+        already = any((h.get("bash") == cmd or h.get("command") == cmd) and h.get("type") == "command" for h in event_list)
         if already:
             continue
 
-        event_list.append({"type": "command", "command": cmd})
+        event_list.append({"type": "command", "bash": cmd})
 
     _write_json(filepath, data)
 
 
 def _uninstall_hooks(hooks_dir: Path) -> None:
     """Remove our hook entries from hooks.json. Removes the file if empty."""
-    filepath = hooks_dir / HOOKS_FILE.name
+    filepath = hooks_dir / HOOKS_FILE_NAME
     if not filepath.is_file():
         return
 
@@ -104,7 +112,7 @@ def _uninstall_hooks(hooks_dir: Path) -> None:
     for event, entry_point in HOOK_EVENTS.items():
         cmd = str(venv_bin(entry_point))
         event_list = hooks_map.get(event, [])
-        filtered = [h for h in event_list if h.get("command") != cmd]
+        filtered = [h for h in event_list if h.get("command") != cmd and h.get("bash") != cmd]
         if filtered:
             hooks_map[event] = filtered
         else:
@@ -151,7 +159,7 @@ def install() -> None:
     else:
         info("Using existing logging settings from config.json")
 
-    hooks_dir = Path.cwd() / HOOKS_DIR
+    hooks_dir = _hooks_dir()
 
     if not dry_run():
         hooks_dir.mkdir(parents=True, exist_ok=True)
@@ -163,7 +171,7 @@ def install() -> None:
 
 def uninstall() -> None:
     """Remove Copilot tracing hooks and deregister from config.json."""
-    hooks_dir = Path.cwd() / HOOKS_DIR
+    hooks_dir = _hooks_dir()
 
     _uninstall_hooks(hooks_dir)
 

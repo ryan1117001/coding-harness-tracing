@@ -1,15 +1,38 @@
 #!/usr/bin/env python3
 """Copilot adapter — single-mode session resolution, initialization, and GC.
 
-The Copilot hook payload schema is unified across VS Code Copilot Chat and
-`gh copilot` CLI: snake_case fields with a top-level `session_id`. We use
-that as the session key directly.
+The Copilot CLI hook payload is camelCase with a top-level `sessionId`
+(`sessionId`, `cwd`, `transcriptPath`, `toolName`, `toolArgs`, `toolResult`,
+`toolCalls`, `stopReason`, …). Reads go through `field()` which tries camelCase
+first and falls back to snake_case so older payloads and fixtures still work.
 """
 import os
 import platform
 import subprocess
 
-from core.common import StateManager, env, generate_trace_id, get_timestamp_ms, log, redirect_stderr_to_log_file
+
+def field(input_json: dict, *names, default=""):
+    """First non-empty value among *names*, in order.
+
+    Copilot's real payload is camelCase; callers pass the camelCase key first
+    and a snake_case alias second (e.g. ``field(j, "sessionId", "session_id")``)
+    to stay compatible with legacy payloads and existing tests.
+    """
+    for name in names:
+        val = input_json.get(name)
+        if val is not None and val != "":
+            return val
+    return default
+
+from core.common import (
+    StateManager,
+    env,
+    generate_trace_id,
+    get_timestamp_ms,
+    git_repository_name,
+    log,
+    redirect_stderr_to_log_file,
+)
 from core.constants import HARNESSES, STATE_BASE_DIR
 
 # --- Module-level constants derived from HARNESSES ---
@@ -99,7 +122,7 @@ def resolve_session(input_json: dict) -> StateManager:
     The hook payload always carries `session_id` (snake_case). Use it directly.
     Defensive fallback to grandparent PID when the payload is malformed.
     """
-    session_key = input_json.get("session_id") or ""
+    session_key = field(input_json, "sessionId", "session_id") or ""
     if not session_key:
         if platform.system() == "Windows":
             session_key = str(os.getppid())
@@ -133,12 +156,12 @@ def ensure_session_initialized(state: StateManager, input_json: dict) -> None:
     if state.get("session_id") is not None:
         return
 
-    session_id = input_json.get("session_id", "") or generate_trace_id()
+    session_id = field(input_json, "sessionId", "session_id") or generate_trace_id()
 
     project_name = env.project_name_for(SERVICE_NAME)
     if not project_name:
-        cwd = input_json.get("cwd", "")
-        project_name = os.path.basename(cwd) if cwd else os.path.basename(os.getcwd())
+        cwd = field(input_json, "cwd")
+        project_name = git_repository_name(cwd) or (os.path.basename(cwd) if cwd else os.path.basename(os.getcwd()))
 
     state.set("session_id", session_id)
     state.set("session_start_time", str(get_timestamp_ms()))

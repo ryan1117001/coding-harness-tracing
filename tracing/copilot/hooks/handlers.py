@@ -24,6 +24,7 @@ from tracing.copilot.hooks.adapter import (
     SERVICE_NAME,
     check_requirements,
     ensure_session_initialized,
+    field,
     gc_stale_state_files,
     resolve_session,
 )
@@ -95,7 +96,7 @@ def _handle_user_prompt_submitted(input_json: dict) -> None:
     if session_id is None:
         return
 
-    prompt = input_json.get("prompt", "") or ""
+    prompt = field(input_json, "prompt") or ""
 
     trace_id = generate_trace_id()
     span_id = generate_span_id()
@@ -112,10 +113,27 @@ def _handle_user_prompt_submitted(input_json: dict) -> None:
 
 
 def _handle_pre_tool_use(input_json: dict) -> None:
-    """Handle pre_tool_use: record tool start time."""
+    """Handle pre_tool_use: record start time for each requested tool call.
+
+    Copilot's preToolUse payload carries a ``toolCalls`` array of
+    ``{"id", "name", "args"}``. We stamp a start time keyed by call id (falling
+    back to the tool name) so postToolUse can compute a duration.
+    """
     state = resolve_session(input_json)
-    tool_id = input_json.get("tool_use_id") or input_json.get("tool_name", "") or generate_trace_id()
-    state.set(f"tool_{tool_id}_start", str(get_timestamp_ms()))
+    now = str(get_timestamp_ms())
+
+    tool_calls = field(input_json, "toolCalls", default=[]) or []
+    if isinstance(tool_calls, list) and tool_calls:
+        for call in tool_calls:
+            if not isinstance(call, dict):
+                continue
+            tool_id = call.get("id") or call.get("name") or generate_trace_id()
+            state.set(f"tool_{tool_id}_start", now)
+        return
+
+    # Fallback for legacy/single-tool payloads.
+    tool_id = field(input_json, "toolUseId", "tool_use_id", "toolName", "tool_name") or generate_trace_id()
+    state.set(f"tool_{tool_id}_start", now)
 
 
 def _handle_post_tool_use(input_json: dict) -> None:
@@ -129,14 +147,27 @@ def _handle_post_tool_use(input_json: dict) -> None:
     parent_span_id = state.get("current_trace_span_id")
     state.increment("tool_count")
 
-    tool_name = input_json.get("tool_name", "unknown")
-    tool_id = input_json.get("tool_use_id") or tool_name or generate_trace_id()
-    tool_input_raw = input_json.get("tool_input") or {}
-    tool_input = json.dumps(tool_input_raw) if isinstance(tool_input_raw, dict) else str(tool_input_raw)
+    tool_name = field(input_json, "toolName", "tool_name") or "unknown"
+    tool_id = field(input_json, "toolUseId", "tool_use_id") or tool_name or generate_trace_id()
 
-    tool_result_obj = input_json.get("tool_result") or {}
-    tool_response = str(tool_result_obj.get("text_result_for_llm", ""))
-    result_type = tool_result_obj.get("result_type", "")
+    # Copilot sends toolArgs as a JSON string; older payloads used a dict under
+    # tool_input. Normalize to a dict for per-tool enrichment when possible.
+    tool_args_raw = field(input_json, "toolArgs", "toolInput", "tool_input", default={})
+    if isinstance(tool_args_raw, str):
+        tool_input = tool_args_raw
+        try:
+            tool_input_raw = json.loads(tool_args_raw) if tool_args_raw else {}
+        except (ValueError, TypeError):
+            tool_input_raw = {}
+    else:
+        tool_input_raw = tool_args_raw or {}
+        tool_input = json.dumps(tool_input_raw) if isinstance(tool_input_raw, dict) else str(tool_input_raw)
+
+    tool_result_obj = field(input_json, "toolResult", "tool_result", default={}) or {}
+    if not isinstance(tool_result_obj, dict):
+        tool_result_obj = {}
+    tool_response = str(tool_result_obj.get("textResultForLlm", tool_result_obj.get("text_result_for_llm", "")))
+    result_type = tool_result_obj.get("resultType", tool_result_obj.get("result_type", ""))
 
     # Tool-specific enrichment. Match case-insensitively because Copilot uses
     # lowercase tool names (`bash`, `read`) where Claude Code uses TitleCase.
@@ -241,12 +272,10 @@ def _handle_stop(input_json: dict) -> None:
     project_name = state.get("project_name") or ""
     user_id = state.get("user_id") or ""
 
-    transcript_path = input_json.get("transcript_path", "")
+    transcript_path = field(input_json, "transcriptPath", "transcript_path")
     summary = parse_transcript(transcript_path) if transcript_path else {}
 
     model_name = summary.get("model_name", "")
-    # TODO(transcript): extract assistant turn text once events.jsonl assistant
-    # event shape is captured. Until then, output_text is empty.
     output_text = summary.get("output_text", "")
     tool_count = state.get("tool_count") or "0"
 
@@ -263,7 +292,7 @@ def _handle_stop(input_json: dict) -> None:
         "output.value": output_text,
         "metadata": json.dumps(
             {
-                "stop_reason": input_json.get("stop_reason", ""),
+                "stop_reason": field(input_json, "stopReason", "stop_reason"),
                 "tool_count": int(tool_count or 0),
             }
         ),
@@ -272,6 +301,12 @@ def _handle_stop(input_json: dict) -> None:
         attrs["llm.model_name"] = model_name
     if user_id:
         attrs["user.id"] = user_id
+    # Copilot's transcript only exposes per-message output tokens per turn; input
+    # tokens + cost land at session end (see _handle_session_end / modelMetrics).
+    output_tokens = summary.get("output_tokens") or 0
+    if output_tokens:
+        attrs["llm.token_count.completion"] = int(output_tokens)
+        attrs["llm.token_count.total"] = int(output_tokens)
 
     span = build_span(
         "Agent Stop",
@@ -301,9 +336,9 @@ def _handle_subagent_stop(input_json: dict) -> None:
     if session_id is None:
         return
 
-    agent_id = input_json.get("agent_id", "")
-    agent_type = input_json.get("agent_type", "")
-    transcript_path = input_json.get("transcript_path", "")
+    agent_id = field(input_json, "agentId", "agent_id")
+    agent_type = field(input_json, "agentType", "agent_type")
+    transcript_path = field(input_json, "transcriptPath", "transcript_path")
 
     summary = parse_transcript(transcript_path) if transcript_path else {}
     model_name = summary.get("model_name", "")
@@ -338,6 +373,91 @@ def _handle_subagent_stop(input_json: dict) -> None:
         SCOPE_NAME,
     )
     send_span(span)
+
+
+def _model_metrics_token_attrs(metrics: dict) -> dict:
+    """Build OpenInference token/cost attrs from one model's shutdown metrics.
+
+    ``prompt`` is the total prompt (cache buckets are subsets, per convention).
+    """
+    attrs: dict = {}
+    prompt = int(metrics.get("prompt") or 0)
+    completion = int(metrics.get("completion") or 0)
+    cache_read = int(metrics.get("cache_read") or 0)
+    cache_write = int(metrics.get("cache_write") or 0)
+    reasoning = int(metrics.get("reasoning") or 0)
+    if prompt:
+        attrs["llm.token_count.prompt"] = prompt
+    if completion:
+        attrs["llm.token_count.completion"] = completion
+    if cache_read:
+        attrs["llm.token_count.prompt_details.cache_read"] = cache_read
+    if cache_write:
+        attrs["llm.token_count.prompt_details.cache_write"] = cache_write
+    if reasoning:
+        attrs["llm.token_count.completion_details.reasoning"] = reasoning
+    total = int(metrics.get("total") or 0)
+    if total:
+        attrs["llm.token_count.total"] = total
+    cost = metrics.get("cost")
+    if isinstance(cost, (int, float)):
+        attrs["llm.cost"] = cost
+    return attrs
+
+
+def _handle_session_end(input_json: dict) -> None:
+    """Handle session end: emit a per-model usage+cost summary span.
+
+    Copilot writes cumulative per-model token usage and cost to
+    ``session.shutdown.modelMetrics`` in the transcript. We parse it and emit one
+    LLM span per model carrying full ``llm.token_count.*`` + ``llm.cost`` — the
+    authoritative usage/cost record for the session.
+    """
+    state = resolve_session(input_json)
+    session_id = state.get("session_id")
+    if session_id is None:
+        return
+
+    project_name = state.get("project_name") or ""
+    user_id = state.get("user_id") or ""
+    start_time = state.get("session_start_time") or str(get_timestamp_ms())
+    end_time = str(get_timestamp_ms())
+
+    transcript_path = field(input_json, "transcriptPath", "transcript_path")
+    summary = parse_transcript(transcript_path) if transcript_path else {}
+    model_metrics = summary.get("model_metrics") or {}
+
+    if not model_metrics:
+        log("copilot session_end: no modelMetrics in transcript, nothing to emit")
+        return
+
+    trace_id = state.get("current_trace_id") or generate_trace_id()
+
+    for model, metrics in model_metrics.items():
+        attrs = {
+            "session.id": session_id,
+            "openinference.span.kind": "LLM",
+            "project.name": project_name,
+        }
+        if model:
+            attrs["llm.model_name"] = model
+        if user_id:
+            attrs["user.id"] = user_id
+        attrs.update(_model_metrics_token_attrs(metrics))
+
+        span = build_span(
+            f"Session Usage: {model}" if model else "Session Usage",
+            "LLM",
+            generate_span_id(),
+            trace_id,
+            "",
+            start_time,
+            end_time,
+            attrs,
+            SERVICE_NAME,
+            SCOPE_NAME,
+        )
+        send_span(span)
 
 
 # ---------------------------------------------------------------------------
@@ -415,3 +535,15 @@ def subagent_stop():
         error(f"copilot subagent_stop hook failed: {e}")
     finally:
         _print_response("SubagentStop")
+
+
+def session_end():
+    """Entry point for arize-hook-copilot-session-end."""
+    try:
+        input_json = _read_stdin("session_end")
+        if check_requirements():
+            _handle_session_end(input_json)
+    except Exception as e:
+        error(f"copilot session_end hook failed: {e}")
+    finally:
+        _print_response("SessionEnd")

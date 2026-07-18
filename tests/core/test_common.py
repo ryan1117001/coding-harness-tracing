@@ -659,7 +659,8 @@ class TestBuildSpan:
         scope = result["resourceSpans"][0]["scopeSpans"][0]["scope"]
         assert scope["name"] == "my-scope"
 
-    def test_attributes_converted(self):
+    def test_attributes_converted(self, monkeypatch):
+        monkeypatch.setattr("core.common.git_repository_name", lambda cwd="": "", raising=False)
         result = build_span(
             name="t",
             kind="LLM",
@@ -673,8 +674,9 @@ class TestBuildSpan:
         assert span["attributes"][0] == {"key": "key", "value": {"stringValue": "val"}}
         assert span["attributes"][1] == {"key": "count", "value": {"intValue": 5}}
 
-    def test_golden_fixture(self, golden_span):
+    def test_golden_fixture(self, golden_span, monkeypatch):
         """Build a span with known inputs and compare against golden fixture."""
+        monkeypatch.setattr("core.common.git_repository_name", lambda cwd="": "", raising=False)
         result = build_span(
             name="Turn 1",
             kind="LLM",
@@ -809,10 +811,11 @@ class TestBuildSpanStatus:
         )
         assert self._span(result)["status"] == {"code": 1}
 
-    def test_existing_callers_unaffected_byte_for_byte(self, golden_span):
+    def test_existing_callers_unaffected_byte_for_byte(self, golden_span, monkeypatch):
         """Calling build_span without status kwargs produces identical output
         to today's build (golden fixture has ``status == {"code": 1}``).
         """
+        monkeypatch.setattr("core.common.git_repository_name", lambda cwd="": "", raising=False)
         result = build_span(
             name="Turn 1",
             kind="LLM",
@@ -1365,17 +1368,21 @@ class TestResolveBackend:
             "PHOENIX_PROJECT_NAME",
         ):
             monkeypatch.delenv(key, raising=False)
+        monkeypatch.setattr("core.common.git_repository_name", lambda cwd="": "", raising=False)
 
-    def _make_span(self, service_name=""):
-        """Build a minimal span with optional service.name."""
+    def _make_span(self, service_name="", project_name=""):
+        """Build a minimal span with optional service.name and project.name."""
         attrs = []
         if service_name:
             attrs = [{"key": "service.name", "value": {"stringValue": service_name}}]
+        span_attrs = []
+        if project_name:
+            span_attrs = [{"key": "project.name", "value": {"stringValue": project_name}}]
         return {
             "resourceSpans": [
                 {
                     "resource": {"attributes": attrs},
-                    "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "s"}]}],
+                    "scopeSpans": [{"scope": {"name": "test"}, "spans": [{"name": "s", "attributes": span_attrs}]}],
                 }
             ]
         }
@@ -1998,6 +2005,27 @@ class TestBuildSpanCustomAttributes:
         )
         attrs = self._attrs_dict(result)
         assert attrs["project.name"] == {"stringValue": "from-handler"}
+
+    def test_git_root_name_is_used_when_project_is_not_explicit(self, tmp_path, monkeypatch):
+        repo = tmp_path / "future-project"
+        nested = repo / "packages" / "app"
+        (repo / ".git").mkdir(parents=True)
+        nested.mkdir(parents=True)
+        monkeypatch.chdir(nested)
+        monkeypatch.setattr(env, "custom_attributes", lambda service_name="": {})
+
+        result = build_span(
+            name="t",
+            kind="LLM",
+            span_id="aa",
+            trace_id="bb",
+            start_ms=1000,
+            end_ms=2000,
+            service_name="cursor",
+        )
+
+        attrs = self._attrs_dict(result)
+        assert attrs["project.name"] == {"stringValue": "future-project"}
 
     def test_empty_resolver_is_noop(self, monkeypatch):
         monkeypatch.setattr(env, "custom_attributes", lambda service_name="": {})

@@ -263,6 +263,23 @@ class _Env:
 env = _Env()
 
 
+def git_repository_name(cwd: str = "") -> str:
+    """Return the containing Git repository's root directory name.
+
+    The lookup walks parents and accepts either a ``.git`` directory or file,
+    so linked worktrees are handled without spawning ``git``.  An empty string
+    is returned outside a repository.
+    """
+    try:
+        current = Path(cwd or os.getcwd()).expanduser().resolve()
+    except (OSError, RuntimeError):
+        return ""
+    for candidate in (current, *current.parents):
+        if (candidate / ".git").exists():
+            return candidate.name
+    return ""
+
+
 def redact_content(allowed: bool, content: str) -> str:
     """Return content if logging is enabled, else a length-only placeholder.
 
@@ -478,14 +495,28 @@ def resolve_backend(span_dict: dict) -> dict:
     """
     _none = {"target": "none", "project_name": ""}
 
-    # Extract service.name from span resource attributes
+    # Extract service.name and the per-session project the harness recorded on
+    # the span (adapters set project.name from the session's own cwd git-root;
+    # build_span defaults it to the current repo). This is the per-project
+    # routing signal used below when nothing is explicitly configured.
     service_name = ""
+    span_project_name = ""
     for rs in span_dict.get("resourceSpans", []):
         for attr in rs.get("resource", {}).get("attributes", []):
             if attr.get("key") == "service.name":
                 service_name = attr.get("value", {}).get("stringValue", "")
                 break
         if service_name:
+            for ss in rs.get("scopeSpans", []):
+                for span in ss.get("spans", []):
+                    for attr in span.get("attributes", []):
+                        if attr.get("key") == "project.name":
+                            span_project_name = attr.get("value", {}).get("stringValue", "")
+                            break
+                    if span_project_name:
+                        break
+                if span_project_name:
+                    break
             break
 
     if not service_name:
@@ -505,10 +536,20 @@ def resolve_backend(span_dict: dict) -> dict:
     # Resolve target first: env-derived backend takes precedence over config target
     target = env._resolve_target(harness_cfg)
 
-    # Resolve project_name (target-aware): framework env var > config > service_name.
-    # Env override is framework-scoped so ARIZE_PROJECT_NAME can't shadow a Phoenix
-    # project (and vice versa) — see resolve_project_name / issue #74.
-    project_name = resolve_project_name(target, harness_cfg, service_name)
+    # Resolve project_name (target-aware). Precedence:
+    #   framework env var > config project_name > per-session project.name on the
+    #   span (the harness's own cwd git-root) > this process's repo git-root >
+    #   service_name.
+    # The env override stays framework-scoped so ARIZE_PROJECT_NAME can't shadow a
+    # Phoenix project (and vice versa) — see resolve_project_name / issue #74.
+    # The Git-root steps give per-project routing out of the box: with no env var
+    # or config, traces land in a project named after the repository/directory.
+    project_name = (
+        resolve_project_name(target, harness_cfg, "")
+        or span_project_name
+        or git_repository_name()
+        or service_name
+    )
 
     if not target:
         error(
@@ -1122,6 +1163,9 @@ def build_span(
     attrs = {} if attrs is None else dict(attrs)
     for k, v in env.custom_attributes(service_name).items():
         attrs.setdefault(k, v)
+    repository_name = git_repository_name()
+    if repository_name:
+        attrs.setdefault("project.name", repository_name)
 
     start = int(start_ms) if start_ms else 0
     end = int(end_ms) if end_ms else start

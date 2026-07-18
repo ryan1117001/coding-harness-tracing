@@ -238,6 +238,7 @@ harness_dir() {
         opencode) echo "tracing/opencode" ;;
         omp)     echo "tracing/omp" ;;
         devin)   echo "tracing/devin" ;;
+        pi)      echo "tracing/pi" ;;
         *)       return 1 ;;
     esac
 }
@@ -279,6 +280,7 @@ Commands:
   opencode    Install and configure tracing for opencode
   omp         Install and configure tracing for Oh My Pi (omp)
   devin       Install and configure tracing for Devin CLI
+  pi          Install and configure tracing for Pi (pi.dev)
   status      Report configured harnesses and whether their hooks are wired up
   update      Update the installed coding-harness-tracing and re-register all harnesses
   uninstall <harness>   Tear down one harness
@@ -353,7 +355,7 @@ main() {
     done
 
     case "$cmd" in
-        claude|codex|copilot|cursor|gemini|kiro|antigravity|opencode|omp|devin)
+        claude|codex|copilot|cursor|gemini|kiro|antigravity|opencode|omp|devin|pi)
             install_harness "$cmd" "$with_skills"
             ;;
         uninstall)

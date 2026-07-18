@@ -20,6 +20,7 @@ Claude Code tracing reconstructs each turn as a `CHAIN` containing per-response 
 | [Google Antigravity CLI / IDE](tracing/antigravity/README.md) | [macOS / Linux](tracing/antigravity/README.md#macos--linux) · [Windows](tracing/antigravity/README.md#windows-powershell) | `antigravity` |
 | [Opencode CLI](tracing/opencode/README.md) | [macOS / Linux](tracing/opencode/README.md#macos--linux) · [Windows](tracing/opencode/README.md#windows-powershell) | `opencode` |
 | [Oh My Pi (omp)](tracing/omp/README.md) | [macOS / Linux](tracing/omp/README.md#macos--linux) · [Windows](tracing/omp/README.md#windows-powershell) | `omp` |
+| [Pi (pi.dev)](tracing/pi/README.md) | [macOS / Linux](tracing/pi/README.md#macos--linux) · [Windows](tracing/pi/README.md#windows-powershell) | `pi` |
 
 > **Each install link opens the ready-to-paste command for your OS — copy it and run it in a terminal**
 
