@@ -197,7 +197,7 @@ class TestInstall:
         assert entry["target"] == "phoenix"
         assert entry["endpoint"] == "http://localhost:6006"
         assert entry["api_key"] == ""
-        assert entry["project_name"] == "codex"
+        assert entry["project_name"] == ""
         assert "backend" not in config
         assert "collector" not in config
 
@@ -212,7 +212,7 @@ class TestInstall:
         assert entry["endpoint"] == "otlp.arize.com:443"
         assert entry["api_key"] == "ak-xxx"
         assert entry["space_id"] == "U3Bh"
-        assert entry["project_name"] == "codex"
+        assert entry["project_name"] == ""
 
     def test_install_uses_custom_codex_home(self, fake_home, mock_prompts, monkeypatch):
         custom_home = fake_home / "alternate-codex"

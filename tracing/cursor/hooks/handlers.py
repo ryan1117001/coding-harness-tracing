@@ -10,9 +10,11 @@ stderr: redirected to ARIZE_LOG_FILE before dispatch.
 import json
 import os
 import sys
+from typing import Optional
 
-from core.common import build_span, env, error, get_timestamp_ms, log, redact_content
+from core.common import build_span, env, error, get_timestamp_ms, git_repository_name, log, redact_content
 from core.common import send_span as _send_span_to_backend
+from tracing.cursor.constants import HOOKS_FILE
 from tracing.cursor.hooks.adapter import (
     SCOPE_NAME,
     SERVICE_NAME,
@@ -28,34 +30,74 @@ from tracing.cursor.hooks.adapter import (
 )
 from tracing.cursor.hooks.transcript import model_from_conversation, model_from_transcript
 
+# Cursor's own extension home (~/.cursor). Some IDE-triggered hook payloads omit
+# cwd/workspace_root, and the hook subprocess's own os.getcwd() then falls back to
+# this directory rather than the project folder — never trust it as a project cwd.
+_HARNESS_HOME_DIR = str(HOOKS_FILE.parent)
+
 # ---------------------------------------------------------------------------
 # Span send (with project.name injection)
 # ---------------------------------------------------------------------------
 
 
-def _resolve_project_name() -> str:
+def _cwd_from_payload(input_json: Optional[dict]) -> str:
+    """Best-effort cwd/workspace root from a Cursor hook payload.
+
+    Real Cursor CLI ``sessionStart`` payloads carry ``workspace_roots`` — a
+    *list* of paths — not a flat ``cwd``/``workspace_root`` string (verified
+    against a live payload: ``{"workspace_roots": ["/path/to/project"], ...}``).
+    Checks the flat keys first for forwards/backwards compat with any payload
+    shape that does use them, then falls back to the first entry of
+    ``workspace_roots``.
+    """
+    if not isinstance(input_json, dict):
+        return ""
+    cwd = input_json.get("cwd") or input_json.get("workspace_root") or ""
+    if cwd:
+        return cwd
+    roots = input_json.get("workspace_roots")
+    if isinstance(roots, list) and roots and roots[0]:
+        return str(roots[0])
+    return ""
+
+
+def _resolve_project_name(input_json: Optional[dict] = None) -> str:
     """Project name for Cursor spans: framework env override or config.json,
-    else cwd basename, else the service name.
+    else the git repository root of the session's cwd, else cwd basename,
+    else the service name.
 
     Cursor builds many span dicts across 15 handlers and keeps no per-session
     project state, so it resolves the project centrally at send time — matching
     the framework-scoped resolution the other harnesses do in their adapters.
+    A cwd comes from the hook payload when present (see ``_cwd_from_payload``);
+    other events fall back to the hook process's own cwd. That fallback is
+    unreliable — some IDE payloads carry no cwd at all, and the hook
+    subprocess's os.getcwd() then resolves to Cursor's own extension home
+    (``~/.cursor``) rather than the project folder, so that value is discarded
+    rather than trusted.
     """
-    return env.project_name_for(SERVICE_NAME) or os.path.basename(os.getcwd()) or SERVICE_NAME
+    cwd = _cwd_from_payload(input_json) or os.getcwd()
+    if os.path.abspath(cwd) == _HARNESS_HOME_DIR:
+        cwd = ""
+    return env.project_name_for(SERVICE_NAME) or git_repository_name(cwd) or os.path.basename(cwd) or SERVICE_NAME
 
 
-def send_span(payload: dict) -> bool:
-    """Inject ``project.name`` onto every span in the payload, then send.
+def send_span(payload: dict, input_json: Optional[dict] = None) -> bool:
+    """Set ``project.name`` on every span in the payload, then send.
 
     Wraps ``core.common.send_span`` so all handler send sites get the attribute
-    without threading project name through each attrs dict.
+    without threading project name through each attrs dict. Replaces (rather
+    than appends) any ``project.name`` attribute ``build_span`` may already
+    have added via its own process-cwd-based git lookup, so a span never ends
+    up carrying two conflicting ``project.name`` values.
     """
-    project_name = _resolve_project_name()
+    project_name = _resolve_project_name(input_json)
     attr = {"key": "project.name", "value": {"stringValue": project_name}}
     for rs in payload.get("resourceSpans", []):
         for ss in rs.get("scopeSpans", []):
             for span in ss.get("spans", []):
-                span.setdefault("attributes", []).append(attr)
+                span["attributes"] = [a for a in span.get("attributes", []) if a.get("key") != "project.name"]
+                span["attributes"].append(attr)
     return _send_span_to_backend(payload)
 
 
@@ -301,7 +343,7 @@ def _handle_before_submit_prompt(input_json, conversation_id, gen_id, trace_id, 
         SERVICE_NAME,
         SCOPE_NAME,
     )
-    send_span(root_span)
+    send_span(root_span, input_json)
     log(f"beforeSubmitPrompt: root span {sid} (trace={trace_id})")
 
 
@@ -355,7 +397,7 @@ def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, 
             SERVICE_NAME,
             SCOPE_NAME,
         )
-        send_span(root_span)
+        send_span(root_span, input_json)
         log(f"afterAgentResponse: sent deferred root span {root_state['span_id']}")
 
     llm_entry = {
@@ -402,7 +444,7 @@ def _handle_after_agent_response(input_json, conversation_id, gen_id, trace_id, 
         SERVICE_NAME,
         SCOPE_NAME,
     )
-    send_span(span)
+    send_span(span, input_json)
     log(f"afterAgentResponse: child span {sid} (no gen_id, sent inline)")
 
 
@@ -437,7 +479,7 @@ def _handle_after_agent_thought(input_json, conversation_id, gen_id, trace_id, n
         SERVICE_NAME,
         SCOPE_NAME,
     )
-    send_span(span)
+    send_span(span, input_json)
     log(f"afterAgentThought: span {sid}")
 
 
@@ -515,7 +557,7 @@ def _handle_after_shell_execution(input_json, conversation_id, gen_id, trace_id,
         SERVICE_NAME,
         SCOPE_NAME,
     )
-    send_span(span)
+    send_span(span, input_json)
     log(f"afterShellExecution: span {sid} (merged)")
 
 
@@ -594,7 +636,7 @@ def _handle_after_mcp_execution(input_json, conversation_id, gen_id, trace_id, n
         SERVICE_NAME,
         SCOPE_NAME,
     )
-    send_span(span)
+    send_span(span, input_json)
     log(f"afterMCPExecution: span {sid} (merged, tool={tool_name})")
 
 
@@ -630,7 +672,7 @@ def _handle_before_read_file(input_json, conversation_id, gen_id, trace_id, now_
         SERVICE_NAME,
         SCOPE_NAME,
     )
-    send_span(span)
+    send_span(span, input_json)
     log(f"beforeReadFile: span {sid}")
 
 
@@ -668,7 +710,7 @@ def _handle_after_file_edit(input_json, conversation_id, gen_id, trace_id, now_m
         SERVICE_NAME,
         SCOPE_NAME,
     )
-    send_span(span)
+    send_span(span, input_json)
     log(f"afterFileEdit: span {sid}")
 
 
@@ -704,7 +746,7 @@ def _handle_before_tab_file_read(input_json, conversation_id, gen_id, trace_id, 
         SERVICE_NAME,
         SCOPE_NAME,
     )
-    send_span(span)
+    send_span(span, input_json)
     log(f"beforeTabFileRead: span {sid}")
 
 
@@ -742,7 +784,7 @@ def _handle_after_tab_file_edit(input_json, conversation_id, gen_id, trace_id, n
         SERVICE_NAME,
         SCOPE_NAME,
     )
-    send_span(span)
+    send_span(span, input_json)
     log(f"afterTabFileEdit: span {sid}")
 
 
@@ -835,7 +877,7 @@ def _handle_stop(input_json, conversation_id, gen_id, trace_id, now_ms):
             SERVICE_NAME,
             SCOPE_NAME,
         )
-        send_span(llm_span)
+        send_span(llm_span, input_json)
 
     attrs = {
         "openinference.span.kind": "CHAIN",
@@ -870,7 +912,7 @@ def _handle_stop(input_json, conversation_id, gen_id, trace_id, now_ms):
         SERVICE_NAME,
         SCOPE_NAME,
     )
-    send_span(span)
+    send_span(span, input_json)
 
     if gen_id:
         state_cleanup_generation(gen_id)
@@ -888,7 +930,7 @@ def _handle_session_start(input_json, conversation_id, gen_id, trace_id, now_ms)
     if conversation_id:
         attrs["cursor.conversation.id"] = conversation_id
 
-    cwd = _jq_str(input_json, "cwd", "workspace_root")
+    cwd = _cwd_from_payload(input_json)
     if cwd:
         attrs["cursor.session.cwd"] = cwd
 
@@ -908,7 +950,7 @@ def _handle_session_start(input_json, conversation_id, gen_id, trace_id, now_ms)
         SERVICE_NAME,
         SCOPE_NAME,
     )
-    send_span(span)
+    send_span(span, input_json)
 
     if gen_id:
         gen_root_span_save(gen_id, sid)
@@ -983,7 +1025,7 @@ def _handle_session_end(input_json, conversation_id, gen_id, trace_id, now_ms):
         SERVICE_NAME,
         SCOPE_NAME,
     )
-    send_span(span)
+    send_span(span, input_json)
 
     if gen_id:
         state_cleanup_generation(gen_id)
@@ -1064,7 +1106,7 @@ def _handle_post_tool_use(input_json, conversation_id, gen_id, trace_id, now_ms)
         SERVICE_NAME,
         SCOPE_NAME,
     )
-    send_span(span)
+    send_span(span, input_json)
     log(f"postToolUse: span {sid} (tool={tool_name})")
 
 

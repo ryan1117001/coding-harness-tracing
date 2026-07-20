@@ -121,7 +121,7 @@ class TestInstallFreshWritesFlatHarnessEntry:
         config = json.loads(config_path.read_text())
         entry = config["harnesses"]["copilot"]
         assert entry["target"] == expected_target
-        assert entry["project_name"] == "copilot"
+        assert entry["project_name"] == ""
         assert entry["endpoint"] == backend[1]["endpoint"]
         assert entry["api_key"] == backend[1]["api_key"]
 
@@ -220,7 +220,7 @@ class TestInstallSecondHarnessOffersCopyFrom:
         assert entry["endpoint"] == ARIZE_BACKEND[1]["endpoint"]
         assert entry["api_key"] == ARIZE_BACKEND[1]["api_key"]
         assert entry["space_id"] == ARIZE_BACKEND[1]["space_id"]
-        assert entry["project_name"] == "copilot"
+        assert entry["project_name"] == ""
 
 
 class TestInstallExistingCopilotEntryOnlyUpdatesProjectName:

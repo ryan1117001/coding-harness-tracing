@@ -1262,7 +1262,7 @@ class TestClaudeSetup:
 
         config = json.loads(config_path.read_text())
         assert config["harnesses"]["claude-code"]["target"] == "phoenix"
-        assert config["harnesses"]["claude-code"]["project_name"] == "claude-code"
+        assert config["harnesses"]["claude-code"]["project_name"] == ""
 
         # settings.json should have hooks and env vars
         result = json.loads(settings_file.read_text())
@@ -1519,7 +1519,7 @@ class TestCodexRunFlow:
         # config.json written
         config = json.loads(Path(config_path).read_text())
         assert config["harnesses"]["codex"]["target"] == "phoenix"
-        assert config["harnesses"]["codex"]["project_name"] == "codex"
+        assert config["harnesses"]["codex"]["project_name"] == ""
 
         # arize-env.sh written
         env_file = codex_dir / "arize-env.sh"
@@ -1745,7 +1745,7 @@ class TestCursorSetup:
 
         config = json.loads(Path(config_path).read_text())
         assert config["harnesses"]["cursor"]["target"] == "phoenix"
-        assert config["harnesses"]["cursor"]["project_name"] == "cursor"
+        assert config["harnesses"]["cursor"]["project_name"] == ""
 
     def test_run_existing_config_skips_prompts(self, tmp_path, monkeypatch):
         """Cursor _run() with existing cursor entry skips backend prompts."""

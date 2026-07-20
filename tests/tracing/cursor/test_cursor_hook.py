@@ -45,7 +45,7 @@ def _patch_cursor_state(tmp_path, monkeypatch):
 def captured_spans():
     """Mock send_span and collect all payloads sent."""
     sent = []
-    with mock.patch("tracing.cursor.hooks.handlers.send_span", side_effect=lambda s: sent.append(s)):
+    with mock.patch("tracing.cursor.hooks.handlers.send_span", side_effect=lambda s, input_json=None: sent.append(s)):
         yield sent
 
 
@@ -2340,7 +2340,7 @@ class TestDeferredLlmSpan:
 class TestProjectNameInjection:
     """project.name is injected onto every Cursor span, target-aware (issue #74)."""
 
-    def _drive_and_capture(self, monkeypatch, event="beforeSubmitPrompt"):
+    def _drive_and_capture(self, monkeypatch, event="beforeSubmitPrompt", **extra_payload):
         """Run a handler with the inner backend sender mocked so the send_span
         wrapper (which injects project.name) actually runs, and return the spans."""
         sent = []
@@ -2351,15 +2351,14 @@ class TestProjectNameInjection:
             ),
             mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=5000),
         ):
-            _dispatch(
-                event,
-                {
-                    "hookEventName": event,
-                    "conversation_id": "c1",
-                    "generation_id": "g1",
-                    "prompt": "hi",
-                },
-            )
+            payload = {
+                "hookEventName": event,
+                "conversation_id": "c1",
+                "generation_id": "g1",
+                "prompt": "hi",
+            }
+            payload.update(extra_payload)
+            _dispatch(event, payload)
         return sent
 
     def test_project_name_from_config_injected(self, monkeypatch):
@@ -2395,3 +2394,89 @@ class TestProjectNameInjection:
         span = sent[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
         assert attrs["project.name"]["stringValue"] == "from-phoenix-env"
+
+    def test_project_name_falls_back_to_git_repo_root_of_payload_cwd(self, monkeypatch, tmp_path):
+        """No env/config override: project.name is the git repo root name of the
+        payload's cwd, not the hook process's own cwd."""
+        from core.common import env as core_env
+
+        repo = tmp_path / "my-repo"
+        (repo / ".git").mkdir(parents=True)
+
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+        monkeypatch.delenv("PHOENIX_PROJECT", raising=False)
+        monkeypatch.setattr("core.config.load_config", lambda: {})
+        core_env.invalidate_caches()
+
+        sent = self._drive_and_capture(monkeypatch, cwd=str(repo))
+
+        span = sent[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["project.name"]["stringValue"] == "my-repo"
+
+    def test_project_name_from_real_session_start_workspace_roots_payload(self, monkeypatch, tmp_path):
+        """Real Cursor CLI sessionStart payloads carry workspace_roots (a list),
+        not a flat cwd/workspace_root string — verified against a live payload:
+        {"hook_event_name": "sessionStart", "workspace_roots": ["/path"], ...}.
+        project.name must resolve from that list, not fall back to the hook
+        process's own cwd."""
+        from core.common import env as core_env
+
+        repo = tmp_path / "my-repo"
+        (repo / ".git").mkdir(parents=True)
+
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+        monkeypatch.delenv("PHOENIX_PROJECT", raising=False)
+        monkeypatch.setattr("core.config.load_config", lambda: {})
+        core_env.invalidate_caches()
+
+        sent = self._drive_and_capture(
+            monkeypatch, event="sessionStart", workspace_roots=[str(repo)]
+        )
+
+        span = sent[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["project.name"]["stringValue"] == "my-repo"
+        assert attrs["cursor.session.cwd"]["stringValue"] == str(repo)
+
+    def test_project_name_falls_back_to_service_name_not_dotfile(self, monkeypatch):
+        """When no cwd is available and the hook process's own cwd happens to be
+        Cursor's extension home (~/.cursor), project.name must be "cursor" (the
+        service name), not the harness home dir's basename ".cursor"."""
+        from core.common import env as core_env
+
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+        monkeypatch.delenv("PHOENIX_PROJECT", raising=False)
+        monkeypatch.setattr("core.config.load_config", lambda: {})
+        core_env.invalidate_caches()
+
+        import tracing.cursor.hooks.handlers as handlers_mod
+
+        monkeypatch.setattr("os.getcwd", lambda: str(handlers_mod._HARNESS_HOME_DIR))
+
+        sent = self._drive_and_capture(monkeypatch)
+
+        span = sent[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        attrs = {a["key"]: a["value"] for a in span["attributes"]}
+        assert attrs["project.name"]["stringValue"] == "cursor"
+
+    def test_project_name_attribute_is_not_duplicated(self, monkeypatch):
+        """build_span's own git-lookup setdefault must not survive alongside the
+        send_span-injected value as a second, conflicting project.name attribute."""
+        from core.common import env as core_env
+
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        monkeypatch.delenv("ARIZE_PROJECT_NAME", raising=False)
+        cfg = {"harnesses": {"cursor": {"project_name": "from-config", "target": "phoenix"}}}
+        monkeypatch.setattr("core.config.load_config", lambda: cfg)
+        core_env.invalidate_caches()
+
+        sent = self._drive_and_capture(monkeypatch)
+
+        span = sent[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        project_name_attrs = [a for a in span["attributes"] if a["key"] == "project.name"]
+        assert len(project_name_attrs) == 1
+        assert project_name_attrs[0]["value"]["stringValue"] == "from-config"

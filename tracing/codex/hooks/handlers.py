@@ -28,6 +28,7 @@ from core.common import (
     generate_span_id,
     generate_trace_id,
     get_timestamp_ms,
+    git_repository_name,
     log,
     redact_content,
 )
@@ -437,7 +438,8 @@ def _put_indexed_message(attrs: dict, prefix: str, role: str, content: str) -> N
 
 def _build_and_send_spans(thread_id: str, turn_id: str, turn: dict) -> None:
     """Assemble the LLM + TOOL spans from an extracted turn and ship them."""
-    project_name = env.project_name_for(SERVICE_NAME) or "codex"
+    cwd = turn.get("cwd") or ""
+    project_name = env.project_name_for(SERVICE_NAME) or git_repository_name(cwd) or "codex"
     user_id = env.get_user_id(SERVICE_NAME) or ""
 
     trace_id = generate_trace_id()
@@ -446,7 +448,6 @@ def _build_and_send_spans(thread_id: str, turn_id: str, turn: dict) -> None:
     user_prompt = redact_content(env.log_prompts, turn.get("user_prompt") or "")
     assistant_output = redact_content(env.log_prompts, turn.get("assistant_output") or "")
     final_output = assistant_output or "(No response)"
-    cwd = turn.get("cwd") or ""
     workspace = Path(cwd).name if cwd else ""
 
     attrs: dict = {
@@ -614,7 +615,7 @@ def _send_legacy_single_span(thread_id: str, turn_id: str, input_json: dict) -> 
 
     attrs = {
         "session.id": thread_id,
-        "project.name": env.project_name_for(SERVICE_NAME) or "codex",
+        "project.name": env.project_name_for(SERVICE_NAME) or git_repository_name() or "codex",
         "openinference.span.kind": "LLM",
         "input.value": user_prompt,
         "output.value": final_output,

@@ -136,7 +136,7 @@ class TestFreshInstall:
         # Flat entry under harnesses.cursor
         entry = config["harnesses"]["cursor"]
         assert entry["target"] == expected_target
-        assert entry["project_name"] == "cursor"
+        assert entry["project_name"] == ""
         assert entry["endpoint"] == backend[1]["endpoint"]
         assert entry["api_key"] == backend[1]["api_key"]
         if expected_target == "arize":

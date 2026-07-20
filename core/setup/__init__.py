@@ -341,7 +341,15 @@ def _try_copy_from(target: str, existing_harnesses: dict | None) -> dict | None:
 
 
 def prompt_project_name(default: str) -> str:
-    """Prompt for project name. Returns default if blank."""
+    """Prompt for project name. Returns default if blank.
+
+    An empty ``default`` (first-time install) means "no explicit pin yet" —
+    shown as an "auto" label rather than a blank ``[]``. Blank input then
+    returns "", which downstream resolution (resolve_project_name /
+    resolve_backend) treats as "no config override", letting each session's
+    project be named after its own git repository instead of being pinned to
+    the harness name forever.
+    """
     if non_interactive():
         # Deliberately not _env(): the ambient ARIZE_PROJECT_NAME belongs to
         # whichever harness is already installed and exports it into this
@@ -357,7 +365,8 @@ def prompt_project_name(default: str) -> str:
         return name
 
     print("")
-    name = input(f"Project name [{default}]: ").strip()
+    label = default or "auto: name each project after its git repository"
+    name = input(f"Project name [{label}]: ").strip()
     return name if name else default
 
 

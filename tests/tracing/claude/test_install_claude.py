@@ -119,7 +119,7 @@ class TestFreshInstall:
         assert config_file.exists()
         config = json.loads(config_file.read_text())
         assert config["harnesses"]["claude-code"]["target"] == expected_target
-        assert config["harnesses"]["claude-code"]["project_name"] == "claude-code"
+        assert config["harnesses"]["claude-code"]["project_name"] == ""
 
         # Check settings.json has plugin + all hook events
         settings_file = fake_home / ".claude" / "settings.json"
@@ -151,7 +151,7 @@ class TestFreshInstall:
         entry = config["harnesses"]["claude-code"]
 
         # All fields at the same level — no nested backend block
-        assert entry["project_name"] == "claude-code"
+        assert entry["project_name"] == ""
         assert entry["target"] == "arize"
         assert entry["endpoint"] == "otlp.arize.com:443"
         assert entry["api_key"] == "test-key"
@@ -324,7 +324,7 @@ class TestCopyFrom:
         assert entry["endpoint"] == "otlp.arize.com:443"
         assert entry["api_key"] == "codex-key"
         assert entry["space_id"] == "codex-space"
-        assert entry["project_name"] == "claude-code"
+        assert entry["project_name"] == ""
 
         # codex entry is preserved
         assert config["harnesses"]["codex"]["api_key"] == "codex-key"

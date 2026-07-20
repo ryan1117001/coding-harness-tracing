@@ -123,7 +123,7 @@ def _run() -> None:
     existing_entry = get_value(config, "harnesses.codex")
 
     # Project name
-    project_name = prompt_project_name("codex")
+    project_name = prompt_project_name(existing_entry.get("project_name", "") if existing_entry else "")
 
     collector = {"host": "127.0.0.1", "port": 4318}
 
