@@ -122,6 +122,7 @@ def _handle_post_tool_use(input_json: dict) -> None:
 
     trace_id = state.get("current_trace_id")
     parent_span_id = state.get("current_trace_span_id")
+    project_name = state.get("project_name") or ""
     state.increment("tool_count")
 
     # Extract tool info
@@ -181,6 +182,7 @@ def _handle_post_tool_use(input_json: dict) -> None:
     user_id = state.get("user_id") or ""
     attrs = {
         "session.id": session_id,
+        "project.name": project_name,
         "openinference.span.kind": "TOOL",
         "tool.name": tool_name,
         "input.value": tool_input,
@@ -246,6 +248,7 @@ def _handle_post_tool_use_failure(input_json: dict) -> None:
 
     trace_id = state.get("current_trace_id")
     parent_span_id = state.get("current_trace_span_id")
+    project_name = state.get("project_name") or ""
     state.increment("tool_count")
 
     # Extract tool info
@@ -309,6 +312,7 @@ def _handle_post_tool_use_failure(input_json: dict) -> None:
     user_id = state.get("user_id") or ""
     attrs = {
         "session.id": session_id,
+        "project.name": project_name,
         "openinference.span.kind": "TOOL",
         "tool.name": tool_name,
         "input.value": tool_input,
@@ -1048,8 +1052,10 @@ def _handle_subagent_stop(input_json: dict) -> None:
     output = redact_content(env.log_tool_content, output)
 
     # Build attributes
+    project_name = state.get("project_name") or ""
     attrs = {
         "session.id": session_id,
+        "project.name": project_name,
         "openinference.span.kind": "CHAIN",
         "subagent.id": agent_id,
         "subagent.type": agent_type,
@@ -1150,12 +1156,14 @@ def _handle_notification(input_json: dict) -> None:
         return
 
     session_id = state.get("session_id")
+    project_name = state.get("project_name") or ""
     message = redact_content(env.log_prompts, input_json.get("message", ""))
     title = redact_content(env.log_prompts, input_json.get("title", ""))
     notification_type = input_json.get("type", "info")
 
     attrs = {
         "session.id": session_id,
+        "project.name": project_name,
         "openinference.span.kind": "CHAIN",
         "notification.message": message,
         "notification.title": title,
@@ -1192,12 +1200,14 @@ def _handle_permission_request(input_json: dict) -> None:
         return
 
     session_id = state.get("session_id")
+    project_name = state.get("project_name") or ""
     permission = input_json.get("permission", "")
     tool_name = input_json.get("tool_name", "")
     tool_input = redact_content(env.log_tool_details, json.dumps(input_json.get("tool_input", {})))
 
     attrs = {
         "session.id": session_id,
+        "project.name": project_name,
         "openinference.span.kind": "CHAIN",
         "permission.type": permission,
         "permission.tool": tool_name,
@@ -1231,12 +1241,14 @@ def _handle_permission_denied(input_json: dict) -> None:
         return
 
     session_id = state.get("session_id")
+    project_name = state.get("project_name") or ""
     permission = input_json.get("permission", "")
     tool_name = input_json.get("tool_name", "")
     tool_input = redact_content(env.log_tool_details, json.dumps(input_json.get("tool_input", {})))
 
     attrs = {
         "session.id": session_id,
+        "project.name": project_name,
         "openinference.span.kind": "CHAIN",
         "permission.type": permission,
         "permission.tool": tool_name,
@@ -1321,9 +1333,11 @@ def _handle_post_compact(input_json: dict) -> None:
     trigger = input_json.get("trigger") or state.get("compact_trigger") or "unknown"
 
     parent = state.get("current_trace_span_id") or ""
+    project_name = state.get("project_name") or ""
 
     attrs = {
         "session.id": session_id,
+        "project.name": project_name,
         "openinference.span.kind": "CHAIN",
         "compact.trigger": trigger,
     }

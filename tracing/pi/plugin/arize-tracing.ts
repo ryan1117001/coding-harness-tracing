@@ -36,13 +36,17 @@ function binaryPath(): string {
 
 function forward(payload: unknown): void {
   try {
+    const body = JSON.stringify(payload);
     const child = spawn(binaryPath(), [], {
       stdio: ["pipe", "ignore", "ignore"],
       detached: true,
     });
     child.on("error", () => {});
-    child.stdin?.write(JSON.stringify(payload));
-    child.stdin?.end();
+    const stdin = child.stdin;
+    if (stdin) {
+      stdin.on("error", () => {});
+      stdin.end(body);
+    }
     child.unref();
   } catch {
     /* fail-soft: tracing must never break the host */

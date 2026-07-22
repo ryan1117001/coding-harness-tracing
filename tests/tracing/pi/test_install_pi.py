@@ -638,6 +638,13 @@ class TestConstants:
         text = _pi.PLUGIN_SOURCE.read_text(encoding="utf-8")
         assert text.startswith(_HEADER_MARKER)
 
+    def test_plugin_source_suppresses_stdin_pipe_errors(self):
+        """The in-process Pi shim must not let child stdin EPIPE crash Pi."""
+        text = _pi.PLUGIN_SOURCE.read_text(encoding="utf-8")
+
+        assert 'stdin.on("error", () => {})' in text
+        assert text.index('stdin.on("error", () => {})') < text.index("stdin.end")
+
 
 # ---------------------------------------------------------------------------
 # Setup wizard delegation

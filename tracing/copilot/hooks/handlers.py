@@ -302,12 +302,15 @@ def _handle_stop(input_json: dict) -> None:
         attrs["llm.model_name"] = model_name
     if user_id:
         attrs["user.id"] = user_id
-    # Copilot's transcript only exposes per-message output tokens per turn; input
-    # tokens + cost land at session end (see _handle_session_end / modelMetrics).
+    # Copilot's transcript only exposes per-message output (completion) tokens per
+    # turn; prompt tokens and the authoritative total are available at session end
+    # via session.shutdown.modelMetrics (see _handle_session_end). Setting total
+    # here to completion-only would violate the OpenInference convention
+    # (total = prompt + completion) and cause incorrect cost estimates in Phoenix /
+    # Arize AX, so we report only the completion count and omit total for now.
     output_tokens = summary.get("output_tokens") or 0
     if output_tokens:
         attrs["llm.token_count.completion"] = int(output_tokens)
-        attrs["llm.token_count.total"] = int(output_tokens)
 
     span = build_span(
         "Agent Stop",

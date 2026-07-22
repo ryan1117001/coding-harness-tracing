@@ -516,6 +516,7 @@ def _build_and_send_spans(thread_id: str, turn_id: str, turn: dict) -> None:
             "input.value": redact_content(env.log_tool_details, args_raw),
             "output.value": redact_content(env.log_tool_content, output_raw),
             "session.id": thread_id,
+            "project.name": project_name,
         }
         if cwd:
             tool_attrs["codex.cwd"] = cwd
