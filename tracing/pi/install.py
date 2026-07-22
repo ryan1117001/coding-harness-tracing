@@ -21,8 +21,9 @@ from pathlib import Path
 
 import tracing.pi.constants as pi_constants
 from core.config import get_value, load_config
-from core.setup import dry_run, ensure_shared_runtime
 from core.setup import (
+    dry_run,
+    ensure_shared_runtime,
     info,
     merge_harness_entry,
     prompt_backend,

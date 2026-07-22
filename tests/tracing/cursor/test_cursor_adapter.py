@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tracing.cursor.hooks.adapter — Cursor-specific adapter module."""
+
 import hashlib
 import json
 import threading

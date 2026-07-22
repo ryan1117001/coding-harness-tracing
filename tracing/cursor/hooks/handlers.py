@@ -7,6 +7,7 @@ Input contract: JSON on stdin, all 15 events (IDE + CLI) routed here.
 stdout: MUST print permissive JSON response, even on error.
 stderr: redirected to ARIZE_LOG_FILE before dispatch.
 """
+
 import json
 import os
 import sys

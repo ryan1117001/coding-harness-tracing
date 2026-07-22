@@ -6,6 +6,7 @@ PostToolUse, Stop) is gone -- the notify handler now derives everything from
 Codex's rollout JSONL on disk. What remains here is the minimum: harness
 constants and an env-file loader.
 """
+
 from __future__ import annotations
 
 import os

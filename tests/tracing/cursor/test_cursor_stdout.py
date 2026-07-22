@@ -8,6 +8,7 @@ event handler must keep stdout silent — diagnostics belong on stderr (via
 write is the final protocol response in ``main()._print_permissive`` (which is
 not exercised here).
 """
+
 from unittest import mock
 
 import pytest

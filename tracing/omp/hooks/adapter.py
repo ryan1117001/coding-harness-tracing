@@ -13,6 +13,7 @@ name, so the derivation chain is simply
 ``env.project_name_for(SERVICE_NAME)`` (framework env override or config.json)
 -> ``os.path.basename(os.getcwd())`` -> ``HARNESS_NAME``.
 """
+
 from __future__ import annotations
 
 import os

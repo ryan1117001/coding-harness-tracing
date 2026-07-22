@@ -5,6 +5,7 @@ opencode always supplies an authoritative `sessionID` in the payload sent by the
 TypeScript plugin shim, so this adapter has no PID / grandparent-PID heuristics.
 Missing sessionID keys off the literal string ``"unknown"``.
 """
+
 from __future__ import annotations
 
 import os

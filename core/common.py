@@ -545,10 +545,7 @@ def resolve_backend(span_dict: dict) -> dict:
     # The Git-root steps give per-project routing out of the box: with no env var
     # or config, traces land in a project named after the repository/directory.
     project_name = (
-        resolve_project_name(target, harness_cfg, "")
-        or span_project_name
-        or git_repository_name()
-        or service_name
+        resolve_project_name(target, harness_cfg, "") or span_project_name or git_repository_name() or service_name
     )
 
     if not target:

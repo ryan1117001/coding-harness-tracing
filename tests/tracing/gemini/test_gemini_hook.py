@@ -5,6 +5,7 @@ Mirrors tests/test_copilot_hook.py structure but adapted for Gemini's
 single-mode adapter (no VS Code / CLI dual-mode) and Gemini-specific
 event names (BeforeAgent/AfterAgent, BeforeModel/AfterModel, etc.).
 """
+
 from __future__ import annotations
 
 import io

@@ -2432,9 +2432,7 @@ class TestProjectNameInjection:
         monkeypatch.setattr("core.config.load_config", lambda: {})
         core_env.invalidate_caches()
 
-        sent = self._drive_and_capture(
-            monkeypatch, event="sessionStart", workspace_roots=[str(repo)]
-        )
+        sent = self._drive_and_capture(monkeypatch, event="sessionStart", workspace_roots=[str(repo)])
 
         span = sent[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}

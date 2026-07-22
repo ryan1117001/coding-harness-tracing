@@ -4,6 +4,7 @@
 Each entry point reads stdin JSON (snake_case schema), resolves session state,
 and delegates to the corresponding _handle_* implementation.
 """
+
 import json
 import sys
 

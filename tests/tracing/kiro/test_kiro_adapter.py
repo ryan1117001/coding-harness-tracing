@@ -4,6 +4,7 @@
 Mirrors tests/test_gemini_adapter.py structure but adapted for Kiro's
 stable session_id UUID (no PID fallback needed) and session sidecar enrichment.
 """
+
 from __future__ import annotations
 
 import copy

@@ -21,6 +21,7 @@ Span tree (one trace per agent run):
 
 Mirrors tests/tracing/omp/test_omp_hook.py.
 """
+
 from __future__ import annotations
 
 import io

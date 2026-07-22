@@ -12,6 +12,7 @@ Like omp, Pi has no snapshot/message payload to mine, so the project-name
 derivation chain is simply
 ``env.project_name`` -> ``os.path.basename(os.getcwd())`` -> ``HARNESS_NAME``.
 """
+
 from __future__ import annotations
 
 import json

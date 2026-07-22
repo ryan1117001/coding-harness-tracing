@@ -14,6 +14,7 @@ The project name derivation chain is
 -> git repo name of the session ``cwd`` the shim forwards (``ctx.cwd``) ->
 ``os.path.basename(cwd)`` -> ``os.path.basename(os.getcwd())`` -> ``HARNESS_NAME``.
 """
+
 from __future__ import annotations
 
 import os

@@ -87,7 +87,9 @@ def _install_hooks(hooks_dir: Path) -> None:
         cmd = str(venv_bin(entry_point))
         event_list: list = hooks_map.setdefault(event, [])
 
-        already = any((h.get("bash") == cmd or h.get("command") == cmd) and h.get("type") == "command" for h in event_list)
+        already = any(
+            (h.get("bash") == cmd or h.get("command") == cmd) and h.get("type") == "command" for h in event_list
+        )
         if already:
             continue
 

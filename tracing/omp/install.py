@@ -25,7 +25,10 @@ from pathlib import Path
 
 import tracing.omp.constants as omp_constants
 from core.config import get_value, load_config
-from core.setup import dry_run, ensure_shared_runtime
+from core.setup import (
+    dry_run,
+    ensure_shared_runtime,
+)
 from core.setup import err as _err
 from core.setup import (
     info,

@@ -6,6 +6,7 @@ opencode's authoritative `sessionID` field. opencode always supplies a real
 session ID, so there is NO PID / grandparent-PID fallback — missing sessionID
 keys off the literal string "unknown".
 """
+
 from __future__ import annotations
 
 import json

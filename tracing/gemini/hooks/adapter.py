@@ -5,6 +5,7 @@ Gemini CLI provides GEMINI_SESSION_ID as an env var on every hook invocation,
 but falls back to PID-based session keys (grandparent PID) to ensure
 consistent state across all hooks in a single CLI run.
 """
+
 from __future__ import annotations
 
 import os

@@ -12,6 +12,7 @@ omp also differs from opencode in project-name derivation: there is no
 snapshot/message payload to mine, so the chain is simply
 ``env.project_name`` -> ``os.path.basename(os.getcwd())`` -> ``HARNESS_NAME``.
 """
+
 from __future__ import annotations
 
 import json

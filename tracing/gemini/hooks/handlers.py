@@ -4,6 +4,7 @@
 Single-mode (CLI-only). Each entry point reads stdin JSON, runs the handler
 in a try/except, and prints {} to stdout in finally.
 """
+
 from __future__ import annotations
 
 import json

@@ -8,6 +8,7 @@ pairs.
 
 Replaces cursor-tracing/hooks/common.sh (195 lines).
 """
+
 import hashlib
 import json
 import os

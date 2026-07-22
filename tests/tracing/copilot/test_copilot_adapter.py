@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tracing.copilot.hooks.adapter — single-mode session resolution, init, GC, requirements."""
+
 import json
 import os
 import subprocess

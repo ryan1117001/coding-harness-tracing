@@ -4,6 +4,7 @@
 The earlier hook-based architecture is gone; the adapter is now a tiny module
 holding constants, the env-file loader, and a tracing-enabled check.
 """
+
 import os
 
 from tracing.codex.hooks import adapter

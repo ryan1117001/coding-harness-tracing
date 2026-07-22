@@ -22,6 +22,7 @@ Span tree (one trace per agent run):
 
 Tests are modelled after tests/tracing/opencode/test_opencode_hook.py.
 """
+
 from __future__ import annotations
 
 import io

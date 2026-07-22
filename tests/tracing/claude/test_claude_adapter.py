@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tracing.claude_code.hooks.adapter — session resolution, init, GC, requirements."""
+
 import json
 import os
 import subprocess

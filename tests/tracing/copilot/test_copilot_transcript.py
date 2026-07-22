@@ -195,8 +195,14 @@ class TestParseTranscriptReturnShape:
             f,
             [
                 {"type": "session.start", "data": {"copilotVersion": "1.0.40"}},
-                {"type": "assistant.message", "data": {"model": "gpt-5.3-codex", "content": "Hello ", "outputTokens": 3}},
-                {"type": "assistant.message", "data": {"model": "gpt-5.3-codex", "content": "world", "outputTokens": 2}},
+                {
+                    "type": "assistant.message",
+                    "data": {"model": "gpt-5.3-codex", "content": "Hello ", "outputTokens": 3},
+                },
+                {
+                    "type": "assistant.message",
+                    "data": {"model": "gpt-5.3-codex", "content": "world", "outputTokens": 2},
+                },
             ],
         )
         s = parse_transcript(f)

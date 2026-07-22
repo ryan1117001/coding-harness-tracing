@@ -6,6 +6,7 @@ The Copilot CLI hook payload is camelCase with a top-level `sessionId`
 `toolCalls`, `stopReason`, …). Reads go through `field()` which tries camelCase
 first and falls back to snake_case so older payloads and fixtures still work.
 """
+
 import os
 import platform
 import subprocess
@@ -24,7 +25,8 @@ def field(input_json: dict, *names, default=""):
             return val
     return default
 
-from core.common import (
+
+from core.common import (  # noqa: E402
     StateManager,
     env,
     generate_trace_id,
@@ -33,7 +35,7 @@ from core.common import (
     log,
     redirect_stderr_to_log_file,
 )
-from core.constants import HARNESSES, STATE_BASE_DIR
+from core.constants import HARNESSES, STATE_BASE_DIR  # noqa: E402
 
 # --- Module-level constants derived from HARNESSES ---
 _HARNESS = HARNESSES["copilot"]

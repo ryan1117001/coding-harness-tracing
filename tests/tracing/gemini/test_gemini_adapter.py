@@ -5,6 +5,7 @@ Mirrors tests/test_copilot_adapter.py structure but adapted for Gemini's
 single-mode (CLI-only) adapter with GEMINI_SESSION_ID env var instead of
 PID-based or dual-mode session keys.
 """
+
 from __future__ import annotations
 
 import json

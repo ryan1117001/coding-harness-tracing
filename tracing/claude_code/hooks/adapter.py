@@ -4,6 +4,7 @@
 Replaces claude-code-tracing/hooks/common.sh (107 lines). Owns Claude-specific
 session logic; individual hook events are handled by handlers.py.
 """
+
 import os
 import platform
 import subprocess
