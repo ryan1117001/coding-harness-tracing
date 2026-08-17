@@ -265,7 +265,7 @@ class TestDispatchLogic:
         self.text = _read_install_sh()
 
     def test_dispatches_harness_commands(self):
-"""Every supported harness must appear in the main() case dispatch line."""
+        """Every supported harness must appear in the main() case dispatch line."""
         expected = [
             "claude",
             "codex",

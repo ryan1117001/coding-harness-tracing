@@ -31,12 +31,16 @@ _REGISTRATION = {
     # scans — the same treatment Kiro's agents directory gets.
     "codex": ("tracing.codex.constants", ("get_codex_home",)),
     "devin": ("tracing.devin.constants", ("CONFIG_FILE",)),
-    "copilot": ("tracing.copilot.constants", ("HOOKS_FILE",)),
+    # A callable, not a constant: Copilot honours COPILOT_HOME the same way
+    # Codex honours CODEX_HOME, so its hooks.json location is resolved per call.
+    "copilot": ("tracing.copilot.constants", ("get_hooks_file",)),
     "cursor": ("tracing.cursor.constants", ("HOOKS_FILE",)),
     "gemini": ("tracing.gemini.constants", ("SETTINGS_FILE",)),
     "kiro": ("tracing.kiro.constants", ("KIRO_AGENTS_DIR",)),
     "opencode": ("tracing.opencode.constants", ("PLUGIN_FILE",)),
     "omp": ("tracing.omp.constants", ("SETTINGS_FILE", "PLUGIN_FILE")),
+    # Pi (pi.dev): auto-discovered extension shim, no settings.json entry.
+    "pi": ("tracing.pi.constants", ("PLUGIN_FILE",)),
 }
 
 

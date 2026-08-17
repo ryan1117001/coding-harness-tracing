@@ -18,6 +18,7 @@ Stdout discipline: each entry point prints exactly ``{}`` (never
 ``{"decision": "continue"}``, which would force Antigravity's agent loop to
 re-enter). All diagnostics go through ``core.common.log``/``error`` (stderr).
 """
+
 from __future__ import annotations
 
 import json

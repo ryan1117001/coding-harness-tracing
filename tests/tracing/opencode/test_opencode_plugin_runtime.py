@@ -33,8 +33,7 @@ def _instrumented_plugin(tmp_path: Path) -> Path:
 
 def test_foreign_root_messages_are_not_forwarded(tmp_path: Path) -> None:
     plugin = _instrumented_plugin(tmp_path)
-    result = _run_node(
-        f"""
+    result = _run_node(f"""
         globalThis.__arizePayloads = [];
         const {{ ArizeTracing }} = await import({json.dumps(plugin.as_uri())});
         const messages = [{{
@@ -49,15 +48,13 @@ def test_foreign_root_messages_are_not_forwarded(tmp_path: Path) -> None:
         }});
         await hooks.event({{ event: {{ type: 'session.idle', properties: {{ sessionID: 'ses_root' }} }} }});
         console.log(JSON.stringify({{ payloads: globalThis.__arizePayloads }}));
-        """
-    )
+        """)
     assert result == {"payloads": []}
 
 
 def test_foreign_child_messages_are_not_forwarded_as_child_snapshot(tmp_path: Path) -> None:
     plugin = _instrumented_plugin(tmp_path)
-    result = _run_node(
-        f"""
+    result = _run_node(f"""
         globalThis.__arizePayloads = [];
         const {{ ArizeTracing }} = await import({json.dumps(plugin.as_uri())});
         const rootMessages = [{{
@@ -81,15 +78,13 @@ def test_foreign_child_messages_are_not_forwarded_as_child_snapshot(tmp_path: Pa
         }});
         await hooks.event({{ event: {{ type: 'session.idle', properties: {{ sessionID: 'ses_root' }} }} }});
         console.log(JSON.stringify({{ payloads: globalThis.__arizePayloads }}));
-        """
-    )
+        """)
     assert len(result["payloads"]) == 1
     assert result["payloads"][0]["childSessions"] == []
 
 
 def test_sdk_error_result_does_not_fetch_or_forward_root_transcript() -> None:
-    result = _run_node(
-        f"""
+    result = _run_node(f"""
         import {{ ArizeTracing }} from {json.dumps(PLUGIN.as_uri())};
         let messagesCalls = 0;
         const hooks = await ArizeTracing({{
@@ -103,6 +98,5 @@ def test_sdk_error_result_does_not_fetch_or_forward_root_transcript() -> None:
           properties: {{ info: {{ role: 'assistant', time: {{ completed: 1 }}, sessionID: 'ses_root' }} }},
         }} }});
         console.log(JSON.stringify({{ messagesCalls }}));
-        """
-    )
+        """)
     assert result == {"messagesCalls": 0}

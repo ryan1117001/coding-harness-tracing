@@ -5,6 +5,7 @@ Antigravity provides ``conversationId`` on every hook invocation, so the
 adapter is simpler than the Gemini one: no env-var or grandparent-PID lookup,
 no PID-keyed gc.
 """
+
 from __future__ import annotations
 
 import json

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Tests for tracing.antigravity.hooks.handlers — Stop and PreInvocation."""
+
 from __future__ import annotations
 
 import io

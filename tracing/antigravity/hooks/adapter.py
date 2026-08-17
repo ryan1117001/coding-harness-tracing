@@ -8,6 +8,7 @@ path instead — PreInvocation and Stop run as separate processes, so the key
 must be process-independent for the pair to share the emission watermark. With
 neither field present there is no usable key and the hooks no-op.
 """
+
 from __future__ import annotations
 
 import hashlib
