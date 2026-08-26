@@ -17,6 +17,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from types import ModuleType
 from typing import IO, Optional
 
 from core.otlp_proto import otlp_json_to_protobuf
@@ -756,11 +757,15 @@ def send_span(span_dict: dict) -> bool:
 
 
 # --- Platform-specific lock implementation detection ---
+_fcntl: Optional[ModuleType]
 try:
-    import fcntl
-
-    _LOCK_IMPL = "fcntl"
+    import fcntl as _fcntl
 except ImportError:
+    _fcntl = None
+
+if _fcntl is not None:
+    _LOCK_IMPL = "fcntl"
+else:
     try:
         import msvcrt
 
@@ -811,11 +816,13 @@ class FileLock:
             self._release_mkdir()
 
     def _acquire_fcntl(self) -> None:
+        if _fcntl is None:
+            raise RuntimeError("fcntl locking is unavailable")
         self._fd = open(self.lock_path, "w")
         deadline = time.monotonic() + self.timeout
         while True:
             try:
-                fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                _fcntl.flock(self._fd, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
                 return
             except (OSError, BlockingIOError):
                 if time.monotonic() >= deadline:
@@ -829,14 +836,16 @@ class FileLock:
                     except OSError:
                         pass
                     self._fd = open(self.lock_path, "w")
-                    fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    _fcntl.flock(self._fd, _fcntl.LOCK_EX | _fcntl.LOCK_NB)
                     return
                 time.sleep(0.1)
 
     def _release_fcntl(self) -> None:
         if self._fd is not None:
+            if _fcntl is None:
+                raise RuntimeError("fcntl locking is unavailable")
             try:
-                fcntl.flock(self._fd, fcntl.LOCK_UN)
+                _fcntl.flock(self._fd, _fcntl.LOCK_UN)
             except OSError:
                 pass
             try:
