@@ -1,14 +1,13 @@
 """Parser for Copilot session-state transcript (events.jsonl).
 
-The Stop / SessionEnd hook payloads supply `transcriptPath` pointing at a JSONL
+Stop events can supply `transcriptPath`; SessionEnd resolves the persisted session-state JSONL
 file with one event per line. Each line is:
 
     {"type": "<kind>", "data": {...}, "id": "<uuid>",
      "timestamp": "<iso>", "parentId": "<uuid|null>"}
 
-We extract the resolved model name, the completed turn's output tokens, and (at
-session end) the per-model usage + cost totals so spans can carry meaningful
-`llm.model_name`, `llm.token_count.*`, and `llm.cost` attributes.
+We extract the resolved model name, completed-turn output tokens, and
+session-end per-model usage plus Copilot premium-request metrics.
 
 Real event shapes (verified against on-disk sessions):
   - session.auto_mode_resolved.data.chosenModel   -> resolved model for "auto"
@@ -23,6 +22,7 @@ Real event shapes (verified against on-disk sessions):
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -32,6 +32,31 @@ _MODEL_SENTINELS = frozenset({"auto", "default", ""})
 
 def _is_real_model(name: Any) -> bool:
     return bool(name) and str(name).strip().lower() not in _MODEL_SENTINELS
+
+
+def resolve_transcript_path(session_id: object, explicit_path: object = None) -> "Path | None":
+    """Find a readable Copilot events stream.
+
+    Session-end payloads do not include ``transcriptPath``. For those events,
+    Copilot persists the stream at
+    ``$COPILOT_HOME/session-state/<sessionId>/events.jsonl`` (or under
+    ``~/.copilot``). A supplied readable path takes precedence for events that
+    provide one.
+    """
+    if isinstance(explicit_path, (str, Path)) and str(explicit_path):
+        candidate = Path(explicit_path).expanduser()
+        if candidate.is_file():
+            return candidate
+
+    if not isinstance(session_id, str) or not session_id:
+        return None
+    session_path = Path(session_id)
+    if session_path.name != session_id or session_id in {".", ".."} or "\\" in session_id:
+        return None
+
+    copilot_home = Path(os.environ.get("COPILOT_HOME", "~/.copilot")).expanduser()
+    candidate = copilot_home / "session-state" / session_id / "events.jsonl"
+    return candidate if candidate.is_file() else None
 
 
 def parse_transcript(path: str | Path) -> dict[str, Any]:
@@ -51,7 +76,8 @@ def parse_transcript(path: str | Path) -> dict[str, Any]:
       tool_count         -- int: number of preToolUse hook.start events.
       model_metrics      -- dict: per-model totals from session.shutdown, each
                             {prompt, completion, cache_read, cache_write,
-                            reasoning, total, cost}. Empty until the session ends.
+                             reasoning, total, premium_request_cost,
+                             request_count, total_nano_aiu}.
       events_seen        -- int: total parsed events (debug aid).
 
     On a missing/unreadable path, returns {} (caller falls back to state-only
@@ -85,7 +111,7 @@ def parse_transcript(path: str | Path) -> dict[str, Any]:
                     continue
                 try:
                     ev = json.loads(line)
-                except json.JSONDecodeError:
+                except (json.JSONDecodeError, TypeError):
                     continue
                 summary["events_seen"] += 1
                 kind = ev.get("type", "")
@@ -129,16 +155,11 @@ def parse_transcript(path: str | Path) -> dict[str, Any]:
 
 
 def _parse_model_metrics(model_metrics: dict) -> dict[str, dict]:
-    """Normalize session.shutdown ``modelMetrics`` into per-model token+cost totals.
+    """Normalize session shutdown metrics without treating vendor credits as USD.
 
-    Returns ``{model_name: {prompt, completion, cache_read, cache_write,
-    reasoning, total, cost}}`` following the OpenInference convention where
-    ``prompt`` is the *total* prompt and cache buckets are subsets of it.
-
-    Copilot's ``usage.inputTokens`` already includes cached tokens (verified:
-    inputTokens == tokenDetails.input + cacheRead + cacheWrite), so it maps
-    directly to ``prompt`` — the cache buckets are reported separately as subsets
-    and must not be added again. ``total`` = prompt + completion.
+    ``prompt`` is the total input; cache buckets are subsets. Copilot's
+    premium-request cost is preserved separately because its unit is not a
+    documented dollar amount.
     """
     result: dict[str, dict] = {}
     if not isinstance(model_metrics, dict):
@@ -147,17 +168,20 @@ def _parse_model_metrics(model_metrics: dict) -> dict[str, dict]:
         if not isinstance(metrics, dict):
             continue
         usage = metrics.get("usage") or {}
-        requests = metrics.get("requests") or {}
+        request_metrics = metrics.get("requests") or {}
 
-        def _int(v):
-            return int(v) if isinstance(v, (int, float)) else 0
+        def _int(value):
+            try:
+                return int(value) if isinstance(value, (int, float)) else 0
+            except (OverflowError, ValueError):
+                return 0
 
         prompt = _int(usage.get("inputTokens"))
         completion = _int(usage.get("outputTokens"))
         cache_read = _int(usage.get("cacheReadTokens"))
         cache_write = _int(usage.get("cacheWriteTokens"))
         reasoning = _int(usage.get("reasoningTokens"))
-        cost = requests.get("cost")
+        cost = request_metrics.get("cost")
         result[model] = {
             "prompt": prompt,
             "completion": completion,
@@ -165,6 +189,8 @@ def _parse_model_metrics(model_metrics: dict) -> dict[str, dict]:
             "cache_write": cache_write,
             "reasoning": reasoning,
             "total": prompt + completion,
-            "cost": cost if isinstance(cost, (int, float)) else None,
+            "premium_request_cost": cost if isinstance(cost, (int, float)) else None,
+            "request_count": _int(request_metrics.get("count")),
+            "total_nano_aiu": _int(metrics.get("totalNanoAiu")),
         }
     return result

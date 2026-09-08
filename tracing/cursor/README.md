@@ -3,6 +3,7 @@
 Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for the Cursor IDE and Cursor CLI. Spans are exported to [Arize AX](https://arize.com) or [Phoenix](https://github.com/Arize-ai/phoenix).
 
 ## Setup
+
 The installer prompts for your backend (Phoenix or Arize AX) and project name, writes credentials to `~/.arize/harness/config.json`, and registers the hooks in `.cursor/hooks.json`.
 
 Pass `--with-skills` to also symlink the `manage-cursor-tracing` skill into the current directory's `.agents/skills/` so coding agents in this workspace can help manage Cursor tracing configuration.
@@ -94,7 +95,7 @@ install.bat uninstall cursor
 ## Default Settings
 
 | Setting | Default |
-|---------|---------|
+| --------- | --------- |
 | Harness key | `cursor` |
 | Project name | `cursor` |
 | Phoenix endpoint | `http://localhost:6006` |
@@ -112,5 +113,6 @@ Use Cursor (IDE or `agent` CLI) as normal. The hooks fire on agent activity with
 - Errors land in `~/.arize/harness/logs/cursor.log` always; set `export ARIZE_VERBOSE=true` before launching Cursor to also see routine hook activity.
 - Confirm spans appear in your configured project in Arize AX or Phoenix.
 - IDE-only events (e.g. `beforeReadFile`, `beforeMCPExecution`, `afterAgentResponse`) only fire when running through the Cursor IDE; the CLI emits the subset listed in **Events emitted by Cursor CLI** above.
+- Cursor exposes resolved model names but not authoritative token counts or USD cost in its hooks or transcript; those values intentionally appear as unavailable rather than zero.
 
 See the [main README's Environment variables section](../../README.md#environment-variables) for the full list of runtime overrides (`ARIZE_TRACE_ENABLED`, `ARIZE_DRY_RUN`, `ARIZE_USER_ID`, etc.).

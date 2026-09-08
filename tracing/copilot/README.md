@@ -3,6 +3,7 @@
 Automatic [OpenInference](https://github.com/Arize-ai/openinference) tracing for GitHub Copilot in VS Code. Spans are exported to [Arize AX](https://arize.com) or [Phoenix](https://github.com/Arize-ai/phoenix).
 
 ## Setup
+
 The installer prompts for your backend (Phoenix or Arize AX) and project name, writes credentials to `~/.arize/harness/config.json`, and registers Copilot Chat hooks at `.github/hooks/hooks.json`.
 
 Pass `--with-skills` to also symlink the `manage-copilot-tracing` skill into the current directory's `.agents/skills/` so coding agents in this workspace can help manage Copilot tracing configuration.
@@ -77,22 +78,23 @@ install.bat uninstall copilot
 ## Default Settings
 
 | Setting | Default |
-|---------|---------|
+| --------- | --------- |
 | Harness key | `copilot` |
 | Project name | `copilot` |
 | Phoenix endpoint | `http://localhost:6006` |
 | Arize AX endpoint | `otlp.arize.com:443` |
-| Hook config file | `.github/hooks/hooks.json` |
-| Hook events registered | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStop` |
+| Hook config file | `~/.copilot/hooks/hooks.json` (or `$COPILOT_HOME/hooks/hooks.json`) |
+| Hook events registered | `sessionStart`, `sessionEnd`, `userPromptSubmitted`, `preToolUse`, `postToolUse`, `agentStop`, `subagentStop` |
 | State directory | `~/.arize/harness/state/copilot/` |
 | Log file | `~/.arize/harness/logs/copilot.log` |
 
 ## Verifying tracing
 
-Use GitHub Copilot Chat in VS Code (or the Copilot CLI) inside the workspace that contains `.github/hooks/hooks.json`. The hooks fire on `SessionStart`, `UserPromptSubmit`, tool invocations, and `Stop`.
+Use GitHub Copilot Chat in VS Code (or the Copilot CLI) after installing the user-level hooks in `~/.copilot/hooks/hooks.json`. The hooks fire on session lifecycle, prompt, tool, and stop events.
 
 - Errors land in `~/.arize/harness/logs/copilot.log` always; set `export ARIZE_VERBOSE=true` before launching VS Code / Copilot CLI to also see routine hook activity.
 - Confirm spans appear in your configured project in Arize AX or Phoenix.
-- The hooks file is per-workspace — repeat the install in each repo where you want Copilot tracing.
+- At `sessionEnd`, tracing reads Copilot's local `session-state/<session-id>/events.jsonl` when the event has no transcript path. It reports authoritative model and token usage from `session.shutdown.modelMetrics`.
+- Copilot `requests.cost` is retained as `copilot.premium_request_cost`; it is not emitted as `llm.cost` because its unit is not confirmed to be USD.
 
 See the [main README's Environment variables section](../../README.md#environment-variables) for the full list of runtime overrides (`ARIZE_TRACE_ENABLED`, `ARIZE_DRY_RUN`, `ARIZE_USER_ID`, etc.).

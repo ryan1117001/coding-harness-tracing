@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from tracing.copilot.hooks.transcript import parse_transcript
+from tracing.copilot.hooks.transcript import parse_transcript, resolve_transcript_path
 
 
 def _write_jsonl(path, events):
@@ -245,7 +245,7 @@ class TestParseTranscriptModelResolution:
 
 
 class TestParseTranscriptModelMetrics:
-    def test_shutdown_model_metrics_tokens_and_cost(self, tmp_path):
+    def test_shutdown_model_metrics_keep_vendor_cost_out_of_usd_field(self, tmp_path):
         f = tmp_path / "events.jsonl"
         _write_jsonl(
             f,
@@ -277,4 +277,31 @@ class TestParseTranscriptModelMetrics:
         assert m["cache_read"] == 207872
         assert m["reasoning"] == 1893
         assert m["total"] == 271316 + 3702
-        assert m["cost"] == 0.66
+        assert m["premium_request_cost"] == 0.66
+        assert m["request_count"] == 0
+        assert m["total_nano_aiu"] == 0
+
+
+class TestResolveTranscriptPath:
+    def test_falls_back_to_copilot_session_state_for_session_end(self, tmp_path, monkeypatch):
+        events = tmp_path / "session-state" / "session-42" / "events.jsonl"
+        events.parent.mkdir(parents=True)
+        events.write_text("{}\n", encoding="utf-8")
+        monkeypatch.setenv("COPILOT_HOME", str(tmp_path))
+
+        assert resolve_transcript_path("session-42") == events
+
+    def test_explicit_path_wins_over_session_state(self, tmp_path, monkeypatch):
+        explicit = tmp_path / "explicit.jsonl"
+        explicit.write_text("{}\n", encoding="utf-8")
+        fallback = tmp_path / "session-state" / "session-42" / "events.jsonl"
+        fallback.parent.mkdir(parents=True)
+        fallback.write_text("{}\n", encoding="utf-8")
+        monkeypatch.setenv("COPILOT_HOME", str(tmp_path))
+
+        assert resolve_transcript_path("session-42", explicit) == explicit
+
+    def test_rejects_path_traversal_session_id(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("COPILOT_HOME", str(tmp_path))
+
+        assert resolve_transcript_path("../session-42") is None

@@ -860,7 +860,42 @@ class TestSessionEnd:
         assert attrs["llm.token_count.completion"]["intValue"] == 3702
         assert attrs["llm.token_count.prompt_details.cache_read"]["intValue"] == 207872
         assert attrs["llm.token_count.completion_details.reasoning"]["intValue"] == 1893
-        assert attrs["llm.cost"]["doubleValue"] == 0.66
+        assert "llm.cost" not in attrs
+        assert attrs["copilot.premium_request_cost"]["doubleValue"] == 0.66
+
+    def test_session_end_falls_back_to_persisted_session_state(
+        self, mock_resolve, state, captured_spans, tmp_path, monkeypatch
+    ):
+        events = tmp_path / "session-state" / "test-session-copilot" / "events.jsonl"
+        events.parent.mkdir(parents=True)
+        events.write_text(
+            json.dumps(
+                {
+                    "type": "session.shutdown",
+                    "data": {
+                        "modelMetrics": {
+                            "gpt-5.4-mini": {
+                                "usage": {"inputTokens": 10, "outputTokens": 2},
+                                "requests": {"cost": 0.5, "count": 1},
+                                "totalNanoAiu": 500000000,
+                            }
+                        }
+                    },
+                }
+            )
+            + "\n"
+        )
+        monkeypatch.setenv("COPILOT_HOME", str(tmp_path))
+
+        _handle_session_end({"sessionId": "test-session-copilot"})
+
+        attrs = _get_span_attrs(captured_spans[0])
+        assert attrs["llm.model_name"]["stringValue"] == "gpt-5.4-mini"
+        assert attrs["llm.token_count.total"]["intValue"] == 12
+        assert "llm.cost" not in attrs
+        assert attrs["copilot.premium_request_cost"]["doubleValue"] == 0.5
+        assert attrs["copilot.request_count"]["intValue"] == 1
+        assert attrs["copilot.total_nano_aiu"]["intValue"] == 500000000
 
     def test_no_metrics_emits_no_span(self, mock_resolve, state, captured_spans, tmp_path):
         tf = tmp_path / "events.jsonl"

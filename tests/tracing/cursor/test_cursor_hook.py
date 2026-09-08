@@ -312,6 +312,10 @@ class TestHandleBeforeSubmitPrompt:
         assert llm_attrs["input.value"]["stringValue"] == "fix the bug"
         assert llm_attrs["output.value"]["stringValue"] == "I fixed the bug"
         assert llm_attrs["session.id"]["stringValue"] == "conv-1"
+        # Cursor exposes a resolved model but no authoritative token or USD cost telemetry.
+        assert "llm.model_name" in llm_attrs
+        assert "llm.token_count.total" not in llm_attrs
+        assert "llm.cost" not in llm_attrs
 
     def test_ide_payload_defers_root_chain_to_after_response(self, captured_spans, monkeypatch):
         """IDE payload (hook_event_name): root CHAIN at afterAgentResponse; LLM deferred to stop."""

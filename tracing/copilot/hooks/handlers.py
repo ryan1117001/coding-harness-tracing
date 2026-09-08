@@ -29,7 +29,7 @@ from tracing.copilot.hooks.adapter import (
     gc_stale_state_files,
     resolve_session,
 )
-from tracing.copilot.hooks.transcript import parse_transcript
+from tracing.copilot.hooks.transcript import parse_transcript, resolve_transcript_path
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -273,7 +273,7 @@ def _handle_stop(input_json: dict) -> None:
     project_name = state.get("project_name") or ""
     user_id = state.get("user_id") or ""
 
-    transcript_path = field(input_json, "transcriptPath", "transcript_path")
+    transcript_path = resolve_transcript_path(session_id, field(input_json, "transcriptPath", "transcript_path"))
     summary = parse_transcript(transcript_path) if transcript_path else {}
 
     model_name = summary.get("model_name", "")
@@ -285,7 +285,7 @@ def _handle_stop(input_json: dict) -> None:
     user_prompt = redact_content(env.log_prompts, user_prompt)
     output_text = redact_content(env.log_tool_content, output_text)
 
-    attrs = {
+    attrs: dict[str, object] = {
         "session.id": session_id,
         "openinference.span.kind": "LLM",
         "project.name": project_name,
@@ -342,8 +342,7 @@ def _handle_subagent_stop(input_json: dict) -> None:
 
     agent_id = field(input_json, "agentId", "agent_id")
     agent_type = field(input_json, "agentType", "agent_type")
-    transcript_path = field(input_json, "transcriptPath", "transcript_path")
-
+    transcript_path = resolve_transcript_path(session_id, field(input_json, "transcriptPath", "transcript_path"))
     summary = parse_transcript(transcript_path) if transcript_path else {}
     model_name = summary.get("model_name", "")
 
@@ -380,43 +379,32 @@ def _handle_subagent_stop(input_json: dict) -> None:
 
 
 def _model_metrics_token_attrs(metrics: dict) -> dict:
-    """Build OpenInference token/cost attrs from one model's shutdown metrics.
-
-    ``prompt`` is the total prompt (cache buckets are subsets, per convention).
-    """
+    """Build usage attributes without mislabeling Copilot credits as USD."""
     attrs: dict = {}
-    prompt = int(metrics.get("prompt") or 0)
-    completion = int(metrics.get("completion") or 0)
-    cache_read = int(metrics.get("cache_read") or 0)
-    cache_write = int(metrics.get("cache_write") or 0)
-    reasoning = int(metrics.get("reasoning") or 0)
-    if prompt:
-        attrs["llm.token_count.prompt"] = prompt
-    if completion:
-        attrs["llm.token_count.completion"] = completion
-    if cache_read:
-        attrs["llm.token_count.prompt_details.cache_read"] = cache_read
-    if cache_write:
-        attrs["llm.token_count.prompt_details.cache_write"] = cache_write
-    if reasoning:
-        attrs["llm.token_count.completion_details.reasoning"] = reasoning
-    total = int(metrics.get("total") or 0)
-    if total:
-        attrs["llm.token_count.total"] = total
-    cost = metrics.get("cost")
-    if isinstance(cost, (int, float)):
-        attrs["llm.cost"] = cost
+    for metric, attribute in (
+        ("prompt", "llm.token_count.prompt"),
+        ("completion", "llm.token_count.completion"),
+        ("cache_read", "llm.token_count.prompt_details.cache_read"),
+        ("cache_write", "llm.token_count.prompt_details.cache_write"),
+        ("reasoning", "llm.token_count.completion_details.reasoning"),
+        ("total", "llm.token_count.total"),
+        ("request_count", "copilot.request_count"),
+        ("total_nano_aiu", "copilot.total_nano_aiu"),
+    ):
+        value = int(metrics.get(metric) or 0)
+        if value:
+            attrs[attribute] = value
+    premium_request_cost = metrics.get("premium_request_cost")
+    if isinstance(premium_request_cost, (int, float)):
+        attrs["copilot.premium_request_cost"] = premium_request_cost
     return attrs
 
 
 def _handle_session_end(input_json: dict) -> None:
-    """Handle session end: emit a per-model usage+cost summary span.
+    """Emit per-model terminal usage from Copilot's persisted session state.
 
-    Copilot writes cumulative per-model token usage and cost to
-    ``session.shutdown.modelMetrics`` in the transcript. We parse it and emit one
-    LLM span per model carrying full ``llm.token_count.*`` + ``llm.cost`` — the
-    authoritative usage/cost record for the session.
-    """
+    Copilot's sessionEnd event does not carry a transcript path, so the helper
+    falls back to the session's local events.jsonl file."""
     state = resolve_session(input_json)
     session_id = state.get("session_id")
     if session_id is None:
@@ -427,12 +415,12 @@ def _handle_session_end(input_json: dict) -> None:
     start_time = state.get("session_start_time") or str(get_timestamp_ms())
     end_time = str(get_timestamp_ms())
 
-    transcript_path = field(input_json, "transcriptPath", "transcript_path")
+    transcript_path = resolve_transcript_path(session_id, field(input_json, "transcriptPath", "transcript_path"))
     summary = parse_transcript(transcript_path) if transcript_path else {}
     model_metrics = summary.get("model_metrics") or {}
 
     if not model_metrics:
-        log("copilot session_end: no modelMetrics in transcript, nothing to emit")
+        log("copilot session_end: no model metrics in session state, nothing to emit")
         return
 
     trace_id = state.get("current_trace_id") or generate_trace_id()
