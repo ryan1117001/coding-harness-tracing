@@ -15,6 +15,7 @@ from core.common import (
     FileLock,
     StateManager,
     _attrs_to_otlp,
+    _copy_resource_attrs_to_spans,
     _inject_openinference_project_resource_attr,
     _resolve_kind,
     _to_otlp_attr_value,
@@ -914,6 +915,49 @@ class TestPhoenixProjectNameInjection:
         ]
 
 
+class TestCopyResourceAttrsToSpans:
+    @staticmethod
+    def _payload(span_attrs):
+        return {
+            "resourceSpans": [
+                {
+                    "resource": {
+                        "attributes": [
+                            {"key": "service.name", "value": {"stringValue": "pi"}},
+                            {"key": "team", "value": {"stringValue": "resource-team"}},
+                        ]
+                    },
+                    "scopeSpans": [{"spans": [{"name": "s", **({"attributes": span_attrs} if span_attrs else {})}]}],
+                }
+            ]
+        }
+
+    def test_copies_resource_attrs_onto_each_span(self):
+        payload = self._payload(None)
+
+        result = _copy_resource_attrs_to_spans(payload)
+
+        span = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+        assert {"key": "service.name", "value": {"stringValue": "pi"}} in span["attributes"]
+        assert {"key": "team", "value": {"stringValue": "resource-team"}} in span["attributes"]
+        # Original payload is not mutated
+        assert "attributes" not in payload["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
+
+    def test_span_level_attr_wins_over_resource_attr(self):
+        payload = self._payload([{"key": "team", "value": {"stringValue": "span-team"}}])
+
+        result = _copy_resource_attrs_to_spans(payload)
+
+        attrs = result["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
+        assert [a for a in attrs if a["key"] == "team"] == [{"key": "team", "value": {"stringValue": "span-team"}}]
+        assert {"key": "service.name", "value": {"stringValue": "pi"}} in attrs
+
+    def test_no_resource_is_a_noop(self):
+        payload = {"resourceSpans": [{"scopeSpans": [{"spans": [{"name": "s"}]}]}]}
+
+        assert _copy_resource_attrs_to_spans(payload) == payload
+
+
 # ── EnvConfig property tests ──────────────────────────────────────────────
 
 
@@ -1107,6 +1151,39 @@ class TestSendSpan:
         assert b"arize.project.type" not in resource_attrs
         span = _pb_decode(_pb_decode(rs[2][0])[2][0])
         assert span[5][0] == b"test-span"
+
+    @mock.patch("core.common.resolve_backend")
+    @mock.patch("core.common.urllib.request.urlopen")
+    def test_phoenix_send_copies_resource_attrs_onto_spans(self, mock_urlopen, mock_resolve, monkeypatch):
+        """Phoenix drops OTLP resource attributes, so service.name must also ride on each span.
+
+        The pre-OTLP REST export merged resource attributes into span attributes;
+        consumers that group by ``attributes['service.name']`` depend on it.
+        """
+        monkeypatch.delenv("ARIZE_DRY_RUN", raising=False)
+        monkeypatch.delenv("ARIZE_VERBOSE", raising=False)
+
+        mock_resolve.return_value = {
+            "target": "phoenix",
+            "endpoint": "http://phoenix:6006",
+            "api_key": "",
+            "project_name": "my-project",
+        }
+        mock_resp = mock.MagicMock()
+        mock_resp.status = 200
+        mock_resp.__enter__ = mock.Mock(return_value=mock_resp)
+        mock_resp.__exit__ = mock.Mock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        assert send_span(self._SAMPLE_SPAN) is True
+
+        rs = _pb_decode(_pb_decode(mock_urlopen.call_args[0][0].data)[1][0])
+        span = _pb_decode(_pb_decode(rs[2][0])[2][0])
+        span_attrs = _pb_attrs(span[9])
+        assert span_attrs[b"service.name"][1][0] == b"test-service"
+        assert span_attrs[b"input.value"][1][0] == b"hello"
+        # Project routing stays a resource concern; it is not copied onto spans.
+        assert b"openinference.project.name" not in span_attrs
 
     @mock.patch("core.common.resolve_backend")
     @mock.patch("core.common.urllib.request.urlopen")

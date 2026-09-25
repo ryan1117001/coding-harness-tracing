@@ -661,6 +661,34 @@ def _inject_openinference_project_resource_attr(span_dict: dict, project_name: s
     )
 
 
+def _copy_resource_attrs_to_spans(span_dict: dict) -> dict:
+    """Return a copy of span_dict with each resource's attributes merged onto its spans.
+
+    Phoenix's OTLP ingest keeps only span attributes (resource attributes are
+    read for project routing, then dropped), so ``service.name`` and any
+    ``OTEL_RESOURCE_ATTRIBUTES`` would otherwise be lost. This restores the
+    merge the pre-OTLP REST export did: span-level keys win over resource keys.
+    Copies only the mutated path; the original payload is never mutated.
+    """
+    new_resource_spans = []
+    for rs in span_dict.get("resourceSpans", []):
+        resource_attrs = rs.get("resource", {}).get("attributes", [])
+        if not resource_attrs:
+            new_resource_spans.append(rs)
+            continue
+        new_scope_spans = []
+        for ss in rs.get("scopeSpans", []):
+            new_spans = []
+            for span in ss.get("spans", []):
+                span_attrs = span.get("attributes", [])
+                span_keys = {a.get("key") for a in span_attrs}
+                inherited = [a for a in resource_attrs if a.get("key") not in span_keys]
+                new_spans.append({**span, "attributes": [*inherited, *span_attrs]})
+            new_scope_spans.append({**ss, "spans": new_spans})
+        new_resource_spans.append({**rs, "scopeSpans": new_scope_spans})
+    return {**span_dict, "resourceSpans": new_resource_spans}
+
+
 def _post_otlp(url: str, body: bytes, headers: dict, label: str) -> bool:
     """POST an encoded OTLP payload, logging failures. Returns True on 2xx."""
     req = urllib.request.Request(url, data=body, headers=headers, method="POST")
@@ -720,7 +748,10 @@ def send_span(span_dict: dict) -> bool:
                 endpoint = endpoint[: -len("/v1/traces")]
             url = f"{endpoint}/v1/traces"
             # Phoenix's OTLP HTTP endpoint only accepts binary protobuf.
-            payload = _inject_openinference_project_resource_attr(span_dict, project_name=project)
+            # Phoenix drops resource attributes on ingest, so copy them (service.name,
+            # OTEL_RESOURCE_ATTRIBUTES) onto each span before adding project routing.
+            payload = _copy_resource_attrs_to_spans(span_dict)
+            payload = _inject_openinference_project_resource_attr(payload, project_name=project)
             body = otlp_json_to_protobuf(payload)
             headers = {"Content-Type": "application/x-protobuf"}
             if api_key:
