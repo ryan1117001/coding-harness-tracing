@@ -596,7 +596,7 @@ def resolve_backend(span_dict: dict) -> dict:
             "project_name": project_name,
         }
 
-    error(f"Unknown target '{target}' for harness '{service_name}'. " f"Expected 'arize' or 'phoenix'.")
+    error(f"Unknown target '{target}' for harness '{service_name}'. Expected 'arize' or 'phoenix'.")
     return {"target": "none", "project_name": project_name}
 
 

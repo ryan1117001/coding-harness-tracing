@@ -1390,7 +1390,6 @@ class TestSendSpan:
 
 
 class TestGetTarget:
-
     def test_phoenix_when_endpoint_set(self, monkeypatch):
         monkeypatch.setenv("PHOENIX_ENDPOINT", "http://phoenix:6006")
         assert get_target() == "phoenix"
@@ -1412,7 +1411,6 @@ class TestGetTarget:
 
 
 class TestDebugDump:
-
     def test_writes_json_to_debug_dir(self, tmp_path, monkeypatch):
         """debug_dump writes JSON file to STATE_BASE_DIR/debug/."""
         monkeypatch.setenv("ARIZE_TRACE_DEBUG", "true")
