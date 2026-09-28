@@ -200,6 +200,27 @@ def _to_int(v):
         return None
 
 
+def _prompt_total_tokens(input_tokens, cache_read, cache_write):
+    """Derive the OpenInference prompt total from Cursor's token fields.
+
+    Observed Cursor payloads report ``input_tokens`` as the FULL prompt, with
+    the cache buckets partitioning it (cache_read + cache_write <= input), so
+    the buckets must not be added on top a second time. Anthropic-style
+    payloads instead report the uncached remainder (cache buckets exceed
+    input), in which case the buckets are added to form the total. The cache
+    split is always reported separately via ``prompt_details.*`` so cost
+    models can price cache reads/writes at their own rates.
+
+    Returns None when *input_tokens* is None (absent, not zero).
+    """
+    if input_tokens is None:
+        return None
+    cache_sum = (cache_read or 0) + (cache_write or 0)
+    if cache_sum <= input_tokens:
+        return input_tokens
+    return input_tokens + cache_sum
+
+
 def _event_name(input_json: dict) -> str:
     """Extract event name from payload, tolerant of IDE and CLI key variants.
 
@@ -813,15 +834,14 @@ def _handle_stop(input_json, conversation_id, gen_id, trace_id, now_ms):
     _dur = input_json.get("duration_ms")
     duration_ms = _to_int(_dur if _dur is not None else input_json.get("durationMs"))
 
-    # OpenInference: ``prompt`` is the total prompt. Cursor's ``input_tokens`` is
-    # the uncached remainder (mirrors Anthropic), so the cache buckets are added
-    # back in to form the total; they are also reported via ``prompt_details.*``
-    # subsets so a cost model prices cache reads (~0.1x) and writes (~1.25x) at
-    # their own rates instead of the full input rate.
+    # OpenInference: ``prompt`` is the total prompt. See _prompt_total_tokens
+    # for how Cursor's ``input_tokens`` and the cache buckets combine; the cache
+    # split is also reported via ``prompt_details.*`` subsets so a cost model
+    # prices cache reads (~0.1x) and writes (~1.25x) at their own rates instead
+    # of the full input rate.
     token_attrs = {}
-    prompt_total = None
-    if prompt_tokens is not None:
-        prompt_total = prompt_tokens + (cache_read or 0) + (cache_write or 0)
+    prompt_total = _prompt_total_tokens(prompt_tokens, cache_read, cache_write)
+    if prompt_total is not None:
         token_attrs["llm.token_count.prompt"] = prompt_total
     if completion_tokens is not None:
         token_attrs["llm.token_count.completion"] = completion_tokens
@@ -991,8 +1011,8 @@ def _handle_session_end(input_json, conversation_id, gen_id, trace_id, now_ms):
         attrs["cursor.session.reason"] = reason
 
     # Token fields can also appear on sessionEnd. Same OpenInference convention
-    # as _handle_stop: ``prompt`` is the total (uncached input + cache buckets),
-    # cache split reported via ``prompt_details.*`` subsets.
+    # as _handle_stop: see _prompt_total_tokens for how ``input_tokens`` and the
+    # cache buckets combine; cache split reported via ``prompt_details.*`` subsets.
     _inp_tok = input_json.get("input_tokens")
     prompt_tokens = _to_int(_inp_tok if _inp_tok is not None else input_json.get("inputTokens"))
     _out_tok = input_json.get("output_tokens")
@@ -1001,9 +1021,8 @@ def _handle_session_end(input_json, conversation_id, gen_id, trace_id, now_ms):
     cache_read = _to_int(_cr_tok if _cr_tok is not None else input_json.get("cacheReadTokens"))
     _cw_tok = input_json.get("cache_write_tokens")
     cache_write = _to_int(_cw_tok if _cw_tok is not None else input_json.get("cacheWriteTokens"))
-    prompt_total = None
-    if prompt_tokens is not None:
-        prompt_total = prompt_tokens + (cache_read or 0) + (cache_write or 0)
+    prompt_total = _prompt_total_tokens(prompt_tokens, cache_read, cache_write)
+    if prompt_total is not None:
         attrs["llm.token_count.prompt"] = prompt_total
     if completion_tokens is not None:
         attrs["llm.token_count.completion"] = completion_tokens

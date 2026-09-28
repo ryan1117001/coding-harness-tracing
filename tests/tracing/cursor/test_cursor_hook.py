@@ -1597,14 +1597,81 @@ class TestHandleStopTokenCounts:
         assert len(captured_spans) == 1
         span = captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]
         attrs = {a["key"]: a["value"] for a in span["attributes"]}
-        # OpenInference: prompt is the total (input 85919 + cache_read 68000 +
-        # cache_write 0 = 153919); cache split is reported via prompt_details.*.
-        assert attrs["llm.token_count.prompt"]["intValue"] == 153919
+        # Cache buckets (68000) fit inside input (85919), so input is already the
+        # full prompt; cache split is reported via prompt_details.*.
+        assert attrs["llm.token_count.prompt"]["intValue"] == 85919
         assert attrs["llm.token_count.completion"]["intValue"] == 1523
         assert attrs["llm.token_count.prompt_details.cache_read"]["intValue"] == 68000
         assert attrs["llm.token_count.prompt_details.cache_write"]["intValue"] == 0
-        assert attrs["llm.token_count.total"]["intValue"] == 155442
+        assert attrs["llm.token_count.total"]["intValue"] == 87442
         assert attrs["llm.model_name"]["stringValue"] == "claude-sonnet-4.5"
+
+    def test_stop_full_prompt_input_not_double_counted(self, captured_spans, monkeypatch):
+        """Observed Cursor payloads: ``input_tokens`` is the FULL prompt and the
+        cache buckets partition it (cache_read + cache_write <= input). The cache
+        buckets must NOT be added on top of input a second time.
+
+        Payload shape from a real Cursor stop hook (community-reported):
+        input 1180993 ~= cache_read 1007022 + cache_write 173957 + 14 uncached.
+        """
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.state_cleanup_generation"),
+        ):
+            _dispatch(
+                "stop",
+                {
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "status": "completed",
+                    "input_tokens": 1180993,
+                    "output_tokens": 8146,
+                    "cache_read_tokens": 1007022,
+                    "cache_write_tokens": 173957,
+                },
+            )
+
+        attrs = {
+            a["key"]: a["value"]
+            for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
+        }
+        assert attrs["llm.token_count.prompt"]["intValue"] == 1180993
+        assert attrs["llm.token_count.completion"]["intValue"] == 8146
+        assert attrs["llm.token_count.prompt_details.cache_read"]["intValue"] == 1007022
+        assert attrs["llm.token_count.prompt_details.cache_write"]["intValue"] == 173957
+        assert attrs["llm.token_count.total"]["intValue"] == 1189139
+
+    def test_stop_uncached_remainder_input_still_adds_cache_buckets(self, captured_spans, monkeypatch):
+        """Anthropic-style payloads (cache buckets exceed input): input is the
+        uncached remainder, so the cache buckets are added to form the prompt."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=5000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.state_cleanup_generation"),
+        ):
+            _dispatch(
+                "stop",
+                {
+                    "conversation_id": "conv-1",
+                    "generation_id": "gen-1",
+                    "status": "completed",
+                    "input_tokens": 14,
+                    "output_tokens": 8146,
+                    "cache_read_tokens": 1007022,
+                    "cache_write_tokens": 173957,
+                },
+            )
+
+        attrs = {
+            a["key"]: a["value"]
+            for a in captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0]["attributes"]
+        }
+        # prompt = 14 + 1007022 + 173957 = 1180993
+        assert attrs["llm.token_count.prompt"]["intValue"] == 1180993
+        assert attrs["llm.token_count.total"]["intValue"] == 1189139
 
     def test_stop_omits_token_attrs_when_payload_has_none(self, captured_spans, monkeypatch):
         """Stop payload without token fields produces no llm.token_count.* attributes."""
@@ -1993,12 +2060,12 @@ class TestDeferredLlmSpan:
 
         llm_attrs = _attrs(spans["Agent Response"][0])
         assert llm_attrs["openinference.span.kind"]["stringValue"] == "LLM"
-        # prompt = input 85919 + cache_read 68000 + cache_write 0 = 153919
-        assert llm_attrs["llm.token_count.prompt"]["intValue"] == 153919
+        # Cache buckets (68000) fit inside input (85919): input is the full prompt.
+        assert llm_attrs["llm.token_count.prompt"]["intValue"] == 85919
         assert llm_attrs["llm.token_count.completion"]["intValue"] == 1523
         assert llm_attrs["llm.token_count.prompt_details.cache_read"]["intValue"] == 68000
         assert llm_attrs["llm.token_count.prompt_details.cache_write"]["intValue"] == 0
-        assert llm_attrs["llm.token_count.total"]["intValue"] == 155442
+        assert llm_attrs["llm.token_count.total"]["intValue"] == 87442
         assert llm_attrs["llm.model_name"]["stringValue"] == "claude-sonnet-4.5"
 
         stop_attrs = _attrs(spans["Agent Stop"][0])
@@ -2069,12 +2136,12 @@ class TestDeferredLlmSpan:
         assert names == ["Agent Stop"]
         stop_attrs = _attrs(captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0])
         assert stop_attrs["openinference.span.kind"]["stringValue"] == "CHAIN"
-        # prompt = input 100 + cache_read 25 + cache_write 5 = 130
-        assert stop_attrs["llm.token_count.prompt"]["intValue"] == 130
+        # Cache buckets (25 + 5) fit inside input (100): input is the full prompt.
+        assert stop_attrs["llm.token_count.prompt"]["intValue"] == 100
         assert stop_attrs["llm.token_count.completion"]["intValue"] == 50
         assert stop_attrs["llm.token_count.prompt_details.cache_read"]["intValue"] == 25
         assert stop_attrs["llm.token_count.prompt_details.cache_write"]["intValue"] == 5
-        assert stop_attrs["llm.token_count.total"]["intValue"] == 180
+        assert stop_attrs["llm.token_count.total"]["intValue"] == 150
         assert stop_attrs["llm.model_name"]["stringValue"] == "claude-sonnet-4.5"
 
     def test_deferred_llm_dropped_when_stop_never_fires(self, captured_spans, monkeypatch):
@@ -2194,6 +2261,33 @@ class TestDeferredLlmSpan:
         assert attrs["llm.token_count.prompt"]["intValue"] == 200
         assert attrs["llm.token_count.completion"]["intValue"] == 75
         assert attrs["llm.token_count.total"]["intValue"] == 275
+
+    def test_session_end_full_prompt_input_not_double_counted(self, captured_spans, monkeypatch):
+        """sessionEnd uses the same semantics as stop: when the cache buckets fit
+        inside ``input_tokens``, input is the full prompt and is not inflated."""
+        monkeypatch.setenv("ARIZE_TRACE_ENABLED", "true")
+        with (
+            mock.patch("tracing.cursor.hooks.handlers.get_timestamp_ms", return_value=9000),
+            mock.patch("tracing.cursor.hooks.handlers.gen_root_span_get", return_value=""),
+            mock.patch("tracing.cursor.hooks.handlers.state_cleanup_generation"),
+        ):
+            _dispatch(
+                "sessionEnd",
+                {
+                    "conversation_id": "conv-end",
+                    "generation_id": "gen-end",
+                    "input_tokens": 1000,
+                    "output_tokens": 75,
+                    "cache_read_tokens": 600,
+                    "cache_write_tokens": 300,
+                },
+            )
+
+        attrs = _attrs(captured_spans[0]["resourceSpans"][0]["scopeSpans"][0]["spans"][0])
+        assert attrs["llm.token_count.prompt"]["intValue"] == 1000
+        assert attrs["llm.token_count.prompt_details.cache_read"]["intValue"] == 600
+        assert attrs["llm.token_count.prompt_details.cache_write"]["intValue"] == 300
+        assert attrs["llm.token_count.total"]["intValue"] == 1075
 
     def test_deferred_llm_uses_recorded_parent_and_start_time_at_stop(self, captured_spans, monkeypatch):
         """The flushed LLM span uses the parent and start_ms recorded at afterAgentResponse."""
